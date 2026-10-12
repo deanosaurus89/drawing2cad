@@ -2,3 +2,4 @@
 jobs/
 server.log
 __pycache__/
+browser/testausgabe/

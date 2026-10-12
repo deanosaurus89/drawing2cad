@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Browser-CAD-Test (replicad + OpenCascade WASM)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#eef1f5;color:#1d2b3a}
+  header{background:#1f3a5f;color:#fff;padding:12px 20px}
+  header h1{margin:0;font-size:20px} header p{margin:4px 0 0;font-size:13px;opacity:.85}
+  main{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px}
+  .karte{background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 3px #0002}
+  h2{font-size:15px;margin:0 0 8px}
+  label{display:block;font-size:13px;margin:6px 0 2px}
+  input[type=number],select{width:100%;padding:5px;box-sizing:border-box}
+  .reihe{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  button{background:#1f3a5f;color:#fff;border:0;border-radius:5px;padding:9px 12px;font-size:14px;cursor:pointer;margin-top:10px;width:100%}
+  button:disabled{background:#9aa7b6;cursor:default}
+  progress{width:100%;height:14px}
+  #status{font-size:13px;margin:6px 0;white-space:pre-line}
+  #viewer{height:520px;border-radius:8px;overflow:hidden;background:#e3e8ef;position:relative}
+  #viewer .hinweis{position:absolute;left:10px;bottom:8px;font-size:12px;color:#556}
+  table{border-collapse:collapse;width:100%;font-size:13px} td{padding:3px 6px;border-bottom:1px solid #e4e8ee;vertical-align:top}
+  td:first-child{color:#556;width:150px}
+  pre{background:#f4f6f9;padding:8px;font-size:11px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+  .ok{color:#1a7f37;font-weight:600} .warn{color:#b35c00;font-weight:600} .err{color:#c62828;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>Browser-CAD-Test: replicad + OpenCascade (WASM)</h1>
+  <p>Läuft komplett im Browser, ohne Server-API. Modell erzeugen → anzeigen → STEP exportieren → Header prüfen.</p>
+</header>
+<main>
+  <div>
+    <div class="karte">
+      <h2>1 · Laden</h2>
+      <div id="quelle"></div>
+      <progress id="fortschritt" max="1" value="0"></progress>
+      <div id="status">Starte …</div>
+    </div>
+    <div class="karte" style="margin-top:12px">
+      <h2>2 · Testmodell: Platte mit Bohrung</h2>
+      <div class="reihe">
+        <div><label>Länge</label><input id="l" type="number" value="80"></div>
+        <div><label>Breite</label><input id="b" type="number" value="50"></div>
+        <div><label>Dicke</label><input id="d" type="number" value="10"></div>
+      </div>
+      <label>Bohrung Ø</label><input id="ob" type="number" value="12">
+      <button id="bauen" disabled>Modell erzeugen</button>
+      <h2 style="margin-top:14px">3 · STEP-Export</h2>
+      <label>STEP-Schema</label>
+      <select id="schema">
+        <option value="standard">Standard (replicad blobSTEP)</option>
+        <option value="AP203">AP203 (CONFIG_CONTROL_DESIGN)</option>
+        <option value="AP214IS">AP214 (AUTOMOTIVE_DESIGN)</option>
+        <option value="AP242DIS">AP242 (AP242_MANAGED_MODEL_BASED_3D_ENGINEERING)</option>
+      </select>
+      <button id="step" disabled>STEP herunterladen</button>
+    </div>
+  </div>
+  <div>
+    <div id="viewer" class="karte" style="padding:0"><span class="hinweis">Maus: ziehen = drehen, Rad = zoomen</span></div>
+    <div class="karte" style="margin-top:12px">
+      <h2>Ergebnis der STEP-Prüfung</h2>
+      <table id="info"><tr><td>–</td><td>Noch kein Export</td></tr></table>
+      <pre id="header"></pre>
+    </div>
+  </div>
+</main>
+<script type="module">
+// Quelle: ?quelle=cdn (Standard) oder ?quelle=lokal (Dateien in ./vendor/, benötigt einen HTTP-Server)
+const params = new URLSearchParams(location.search);
+const LOKAL = params.get('quelle') === 'lokal';
+const BASIS = LOKAL ? new URL('./vendor/', location.href).href : null;
+const URLS = LOKAL ? {
+  replicad: BASIS + 'replicad.js', oc: BASIS + 'replicad_single.js',
+  wasm: BASIS + 'replicad_single.wasm', three: BASIS + 'three.module.js'
+} : {
+  replicad: 'https://cdn.jsdelivr.net/npm/replicad@1.1.0/dist/replicad.js',
+  oc: 'https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.js',
+  wasm: 'https://cdn.jsdelivr.net/npm/replicad-opencascadejs@1.1.0/dist/replicad_single.wasm',
+  three: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'
+};
+const $ = id => document.getElementById(id);
+const status = t => { $('status').textContent = t; };
+$('quelle').innerHTML = `Quelle: <b>${LOKAL ? 'lokal (./vendor/)' : 'CDN (jsDelivr)'}</b> · Seite über <b>${location.protocol}</b>`;
+const T0 = performance.now();
+const sek = () => ((performance.now() - T0) / 1000).toFixed(1) + ' s';
+window.__test = { phase: 'laden' };
+
+let replicad, oc, THREE, shape;
+
+async function ladeWasm(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('WASM HTTP ' + r.status);
+  const total = +r.headers.get('content-length') || 22980267;
+  const reader = r.body.getReader(); const teile = []; let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break;
+    teile.push(value); n += value.length;
+    $('fortschritt').value = n / total;
+    status(`Lade OpenCascade-WASM … ${(n / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`);
+  }
+  const buf = new Uint8Array(n); let o = 0; for (const t of teile) { buf.set(t, o); o += t.length; }
+  return buf;
+}
+
+async function start() {
+  try {
+    status('Lade JavaScript-Module …');
+    [replicad, THREE] = await Promise.all([import(URLS.replicad), import(URLS.three)]);
+    const ocMod = await import(URLS.oc);
+    const bytes = await ladeWasm(URLS.wasm);
+    status('Initialisiere WASM (Kompilieren) …');
+    oc = await ocMod.default({
+      instantiateWasm(imports, fertig) {
+        WebAssembly.instantiate(bytes, imports).then(r => fertig(r.instance, r.module));
+        return {};
+      }
+    });
+    replicad.setOC(oc);
+    window.__test.ladezeit_s = (performance.now() - T0) / 1000;
+    $('fortschritt').value = 1;
+    status(`Bereit nach ${sek()} (WASM ${(bytes.length / 1e6).toFixed(1)} MB).`);
+    $('bauen').disabled = false;
+    initViewer();
+    bauen();
+  } catch (e) {
+    console.error(e);
+    window.__test.phase = 'fehler'; window.__test.fehler = String(e);
+    status('FEHLER beim Laden: ' + e.message +
+      (location.protocol === 'file:' && LOKAL ? '\nLokale ES-Module/WASM sind über file:// blockiert → bitte über einen HTTP-Server öffnen (siehe README).' : ''));
+    $('status').className = 'err';
+  }
+}
+
+// ---------- Modell ----------
+function bauen() {
+  const L = +$('l').value, B = +$('b').value, D = +$('d').value, OB = +$('ob').value;
+  const t = performance.now();
+  const platte = replicad.drawRectangle(L, B).sketchOnPlane('XY').extrude(D);
+  const loch = replicad.drawCircle(OB / 2).sketchOnPlane('XY', [0, 0, -1]).extrude(D + 2);
+  shape = platte.cut(loch);
+  const vol = replicad.measureVolume(shape);
+  const soll = L * B * D - Math.PI * (OB / 2) ** 2 * D;
+  zeigeMesh();
+  status(`Modell erzeugt in ${((performance.now() - t)).toFixed(0)} ms · Volumen ${vol.toFixed(1)} mm³ (Soll ${soll.toFixed(1)}) · ${shape.faces.length} Flächen`);
+  $('step').disabled = false;
+  Object.assign(window.__test, { phase: 'modell', volumen: vol, soll, flaechen: shape.faces.length });
+}
+
+// ---------- STEP ----------
+function stepBlob(schema) {
+  if (schema === 'standard') return shape.blobSTEP();
+  // Eigener Writer: replicad.blobSTEP setzt write.step.schema fest auf 5 (AP242DIS).
+  const ok = oc.Interface_Static.SetCVal('write.step.schema', schema);
+  const w = new oc.STEPControl_Writer();
+  const pr = new oc.Message_ProgressRange();
+  const st = w.Transfer(shape.wrapped, oc.STEPControl_StepModelType.STEPControl_AsIs, true, pr);
+  const fertig = w.Write('/test.step');
+  w.delete(); pr.delete();
+  if (fertig !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('STEP-Schreiben fehlgeschlagen');
+  const data = oc.FS.readFile('/test.step'); oc.FS.unlink('/test.step');
+  window.__test.setcval = ok; window.__test.schemaWert = oc.Interface_Static.CVal('write.step.schema');
+  return new Blob([data], { type: 'application/STEP' });
+}
+function schemaName(fs) {
+  if (/CONFIG_CONTROL_DESIGN/i.test(fs)) return 'AP203 (CONFIG_CONTROL_DESIGN)';
+  if (/AUTOMOTIVE_DESIGN/i.test(fs)) return 'AP214 (AUTOMOTIVE_DESIGN)';
+  if (/AP242/i.test(fs)) return 'AP242 (' + fs.match(/AP242[A-Z_0-9]*/i)[0] + ')';
+  if (/AP203/i.test(fs)) return 'AP203';
+  return 'unbekannt';
+}
+async function exportiere() {
+  const schema = $('schema').value;
+  const blob = stepBlob(schema);
+  const text = await blob.text();
+  const header = text.slice(0, text.indexOf('ENDSEC;') + 7);
+  const fsm = header.replace(/\s+/g, ' ').match(/FILE_SCHEMA\s*\(\s*\((.*?)\)\s*\)/);
+  const fileSchema = fsm ? fsm[1].trim() : '(nicht gefunden)';
+  const name = `platte_${schema}.step`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const zeilen = [
+    ['Gewählt', $('schema').selectedOptions[0].textContent],
+    ['FILE_SCHEMA', fileSchema],
+    ['Erkannt', schemaName(fileSchema)],
+    ['Dateigröße', (blob.size / 1024).toFixed(1) + ' KB'],
+    ['Datei', name],
+  ];
+  if (schema !== 'standard') zeilen.push(['Schema gesetzt per', `Interface_Static.SetCVal("write.step.schema", "${schema}") → ${window.__test.setcval}`]);
+  $('info').innerHTML = zeilen.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  $('header').textContent = header;
+  Object.assign(window.__test, { phase: 'export', fileSchema, erkannt: schemaName(fileSchema), stepText: text });
+}
+
+// ---------- Viewer (minimal, ohne OrbitControls) ----------
+let renderer, scene, camera, gruppe, theta = -0.8, phi = 1.0, dist = 200;
+function initViewer() {
+  const el = $('viewer');
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(devicePixelRatio); renderer.setSize(el.clientWidth, el.clientHeight);
+  renderer.setClearColor(0xe3e8ef); el.prepend(renderer.domElement);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(40, el.clientWidth / el.clientHeight, 1, 5000); camera.up.set(0, 0, 1);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
+  const sonne = new THREE.DirectionalLight(0xffffff, 1.6); sonne.position.set(1, -2, 3); scene.add(sonne);
+  let zieh = null;
+  el.addEventListener('pointerdown', e => zieh = [e.clientX, e.clientY]);
+  addEventListener('pointerup', () => zieh = null);
+  addEventListener('pointermove', e => {
+    if (!zieh) return;
+    theta -= (e.clientX - zieh[0]) * 0.01; phi = Math.min(3.1, Math.max(0.05, phi - (e.clientY - zieh[1]) * 0.01));
+    zieh = [e.clientX, e.clientY]; render();
+  });
+  el.addEventListener('wheel', e => { e.preventDefault(); dist *= e.deltaY > 0 ? 1.1 : 0.9; render(); }, { passive: false });
+  addEventListener('resize', () => { renderer.setSize(el.clientWidth, el.clientHeight); camera.aspect = el.clientWidth / el.clientHeight; camera.updateProjectionMatrix(); render(); });
+}
+function zeigeMesh() {
+  if (gruppe) scene.remove(gruppe);
+  gruppe = new THREE.Group();
+  const m = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(m.vertices, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(m.normals, 3));
+  g.setIndex(m.triangles);
+  gruppe.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x7f9bbf, metalness: 0.2, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })));
+  const k = shape.meshEdges();
+  const kg = new THREE.BufferGeometry(); kg.setAttribute('position', new THREE.Float32BufferAttribute(k.lines, 3));
+  gruppe.add(new THREE.LineSegments(kg, new THREE.LineBasicMaterial({ color: 0x1d2b3a })));
+  scene.add(gruppe);
+  g.computeBoundingSphere(); dist = g.boundingSphere.radius * 3.2; render();
+}
+function render() {
+  if (!renderer) return;
+  camera.position.set(dist * Math.sin(phi) * Math.cos(theta), dist * Math.sin(phi) * Math.sin(theta), dist * Math.cos(phi));
+  camera.lookAt(0, 0, 5); renderer.render(scene, camera);
+}
+
+$('bauen').onclick = bauen;
+$('step').onclick = () => exportiere().catch(e => { status('FEHLER beim Export: ' + e.message); console.error(e); });
+start();
+</script>
+</body>
+</html>

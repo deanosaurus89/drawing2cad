@@ -29,3 +29,15 @@ Web-App (deutsch), die technische Zeichnungen von Maschinenbauteilen (Dreh- und 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/deanosaurus89/drawing2cad?quickstart=1)
 
 Nach dem ersten Aufbau (einige Minuten) startet der Server automatisch auf Port 8420 und öffnet sich im Browser. Falls nicht: `./start.sh` im Terminal ausführen und im Tab „Ports“ Port 8420 öffnen.
+
+## Browser-Test ohne Backend (`browser/test-browser-cad.html`)
+Eine einzelne HTML-Seite (deutsch), die replicad 1.1.0 + `replicad-opencascadejs` 1.1.0 (OpenCascade als WASM) im Browser lädt. Sie erzeugt eine Platte 80×50×10 mit Bohrung Ø12, zeigt sie mit three.js an und exportiert sie als STEP. Danach liest sie `FILE_SCHEMA` aus dem STEP-Header und zeigt es an.
+
+- Laden: Standard ist das CDN (jsDelivr). Mit `?quelle=lokal` kommen die Dateien aus `browser/vendor/` (replicad.js, replicad_single.js/.wasm (23 MB), three.module.js).
+- Starten:
+  - Per Doppelklick (`file://`) funktioniert nur die CDN-Variante (Internet nötig). Die lokale Variante wird von Chrome blockiert, weil Chrome keine ES-Module von `file://` lädt (CORS, Origin `null`).
+  - Offline bzw. lokal: im Repo-Stammordner `python -m http.server 8000` ausführen und `http://localhost:8000/browser/test-browser-cad.html?quelle=lokal` öffnen.
+- STEP-Schema:
+  - `shape.blobSTEP()` von replicad setzt fest `write.step.schema = 5` und schreibt damit `AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF {1 0 10303 442 1 1 4 }`. Das lässt sich von außen nicht ändern.
+  - Die Seite nutzt deshalb für AP203/AP214/AP242 einen eigenen `oc.STEPControl_Writer` nach `oc.Interface_Static.SetCVal("write.step.schema", "AP203" | "AP214IS" | "AP242DIS")`. Ergebnis: `CONFIG_CONTROL_DESIGN` bzw. `AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }`.
+- Test: `python browser/test_browser.py [Pages-URL]` prüft file:// und http://, jeweils mit CDN und lokal, und importiert alle STEP-Dateien mit CadQuery neu. Ergebnis: alle sind gültige Solids mit 38869,0 mm³ und 7 Flächen.
