@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Zeichnung → 3D-CAD</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head><body>
+<header><h1>Zeichnung → 3D-CAD</h1><span class="sub">Technische Zeichnung hochladen · Maße prüfen &amp; ändern · 3D-Modell mit PMI exportieren</span></header>
+<main>
+<section id="links">
+  <h2>1 · Zeichnung wählen</h2>
+  <select id="beispiel"><option value="">– Beispiel auswählen –</option></select>
+  <label class="upload">📄 Eigene Zeichnung hochladen<br><small>PDF (Vektor oder Scan), PNG, JPG, TIFF</small><input type="file" id="datei" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff"></label>
+  <div id="status" class="status">Bitte ein Beispiel wählen oder eine Datei hochladen.</div>
+  <h2>Zeichnung &amp; erkannte Ansichten</h2>
+  <a id="vorschauLink" target="_blank"><img id="vorschau" alt=""></a>
+  <details id="meldBox"><summary>Erkennungs-Protokoll</summary><div id="meldungen"></div></details>
+</section>
+<section id="mitte">
+  <div id="viewer"><canvas id="cube" width="120" height="120" title="Ansichtswürfel: Fläche, Kante oder Ecke anklicken"></canvas>
+    <div id="labels"></div><div id="info" class="info versteckt"></div><div id="busy" class="versteckt">Berechne Modell …</div></div>
+  <div class="toolbar">
+    <button id="fit" title="Ganzes Modell zeigen">⤢ Einpassen</button>
+    <label><input type="checkbox" id="pmiAn" checked> PMI</label>
+    <label><input type="checkbox" id="kantenAn" checked> Kanten</label>
+    <label><input type="checkbox" id="farbeTyp" checked> Farbe nach Flächentyp</label>
+    <span class="sp"></span><span id="downloads"></span>
+  </div>
+  <div id="legende"></div>
+</section>
+<section id="rechts">
+  <nav class="tabs"><button data-tab="masse" class="aktiv">Maße</button><button data-tab="pmi">PMI</button><button data-tab="flaechen">Flächen</button><button data-tab="kanten">Kanten</button><button data-tab="merkmale">Merkmale</button></nav>
+  <div class="tab aktiv" id="tab-masse">
+    <p class="hilfe">Werte ändern und „Modell neu berechnen“ klicken. Grau = nicht änderbar.</p>
+    <div class="knoepfe"><button id="neuBerechnen" class="primaer" disabled>Modell neu berechnen</button><button id="zuruecksetzen">Originalmaße</button></div>
+    <table id="masse"><thead><tr><th>Nr.</th><th>Art</th><th>Wert</th><th>Toleranz</th><th>Status</th></tr></thead><tbody></tbody></table>
+    <div id="aenderungen"></div>
+  </div>
+  <div class="tab" id="tab-pmi"><p class="hilfe">Jedes zugeordnete Maß ist ein PMI-Element mit Bezug auf B-Rep-Flächen (stabile IDs). Anklicken hebt die Geometrie hervor.</p><div id="pmi" class="liste"></div></div>
+  <div class="tab" id="tab-flaechen"><div id="flaechen" class="liste"></div></div>
+  <div class="tab" id="tab-kanten"><div id="kanten" class="liste"></div></div>
+  <div class="tab" id="tab-merkmale"><ul id="merkmale"></ul></div>
+</section>
+</main>
+<script type="module" src="app.js"></script>
+</body></html>
