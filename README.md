@@ -24,3 +24,8 @@ Web-App (deutsch), die technische Zeichnungen von Maschinenbauteilen (Dreh- und 
 - Die Wirkung einer Maßänderung wird heuristisch abgeleitet (Strecken/Verschieben). Taschen- und Tiefenmaße lassen sich nicht bearbeiten.
 - Die stabilen IDs sind Hashes aus Typ, Parametern und Lage. Ändert sich die Geometrie, ändert sich auch die ID.
 - Der Ordner `jobs/` wird nicht automatisch geleert.
+
+## Start in GitHub Codespaces
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/deanosaurus89/drawing2cad?quickstart=1)
+
+Nach dem ersten Aufbau (einige Minuten) startet der Server automatisch auf Port 8420 und öffnet sich im Browser. Falls nicht: `./start.sh` im Terminal ausführen und im Tab „Ports“ Port 8420 öffnen.

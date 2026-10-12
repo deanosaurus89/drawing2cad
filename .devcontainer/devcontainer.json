@@ -1,0 +1,9 @@
+{
+  "name": "drawing2cad",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-deu libgl1 libglib2.0-0 && python -m venv .venv && .venv/bin/pip install -r requirements.txt",
+  "postAttachCommand": "nohup ./start.sh > server.log 2>&1 &",
+  "forwardPorts": [8420],
+  "portsAttributes": { "8420": { "label": "drawing2cad", "onAutoForward": "openBrowser" } }
+}
