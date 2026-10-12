@@ -1,0 +1,67 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1d2733;background:#f5f7fa}
+body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));background:#1f3a5f;color:#fff}
+header h1{font-size:18px;margin:0 8px 0 0}
+#status{flex:1;min-width:160px;font-size:13px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn,select{min-height:44px;padding:0 14px;border:1px solid #9fb0c5;border-radius:8px;background:#fff;color:#1d2733;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn.primaer{background:#2f6fd0;border-color:#2f6fd0;color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+header select{max-width:240px}
+#fortschritt{height:3px;background:transparent}
+#fortschritt div{height:100%;width:0;background:#f0a020;transition:width .2s}
+main{flex:1;display:grid;grid-template-columns:minmax(260px,24%) 1fr minmax(300px,26%);grid-template-rows:1fr auto;min-height:0}
+#p-zeichnung{grid-row:1/3}
+#p-3d{grid-column:2;grid-row:1/3;padding:0;overflow:hidden}
+#p-masse{grid-column:3;grid-row:1}
+#p-info{grid-column:3;grid-row:2;max-height:38vh}
+.panel{overflow:auto;padding:10px 12px;border-right:1px solid #d9e0e8;min-height:0;background:#fff}
+h2{font-size:15px;margin:8px 0}
+h2 small{font-weight:normal;color:#667}
+.leer{color:#778}
+#vorschau{position:relative}
+#vorschau canvas{width:100%;height:auto;border:1px solid #ccd;display:block}
+#vorschau .box{position:absolute;border:2px dashed #2f6fd0;pointer-events:none}
+#vorschau .box span{position:absolute;top:-1.4em;left:0;font-size:11px;background:#2f6fd0;color:#fff;padding:0 4px;border-radius:3px;white-space:nowrap}
+#meldungen div{font-size:13px;padding:6px 8px;margin:6px 0;border-radius:6px;background:#eef3fa}
+#meldungen .fehler{background:#fde8e8;color:#8a1c1c}
+#ansicht{position:relative;width:100%;height:100%;touch-action:none}
+#ansicht>canvas:first-child{display:block;width:100%;height:100%}
+#viewcube{position:absolute;top:8px;right:8px;width:120px;height:120px;cursor:pointer;touch-action:manipulation}
+#werkzeuge{position:absolute;left:8px;top:8px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 150px)}
+.chk{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 10px;background:rgba(255,255,255,.88);border-radius:8px;border:1px solid #c5cfdb;font-size:14px}
+.chk input{width:20px;height:20px}
+#legende{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:4px;font-size:12px;max-width:60%}
+#legende span{background:rgba(255,255,255,.88);padding:2px 6px;border-radius:4px}
+#legende i{display:inline-block;width:10px;height:10px;margin-right:4px;border-radius:2px}
+#auswahl{position:absolute;right:8px;bottom:8px;max-width:min(340px,70%);background:rgba(255,255,255,.95);border:1px solid #c5cfdb;border-radius:8px;padding:8px 10px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+#auswahl table td{padding:1px 6px 1px 0;vertical-align:top}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.pmilabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#fff8e1;border:1px solid #b8860b;color:#5a4100;border-radius:4px;padding:1px 5px;font-size:12px;white-space:nowrap}
+.pmilabel.aktiv{background:#ff3b30;color:#fff;border-color:#a00;z-index:2}
+table{border-collapse:collapse;width:100%}
+#masse td,#masse th{border-bottom:1px solid #e3e8ee;padding:3px 4px;text-align:left;font-size:13px}
+#masse input{width:90px;min-height:40px;font:inherit;padding:0 6px;border:1px solid #9fb0c5;border-radius:6px}
+#masse input.geaendert{background:#fff4d6;border-color:#e0a000}
+#masse tr.fest td{color:#889}
+.zeile{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+#info table td{padding:2px 6px 2px 0;font-size:13px}
+#pmi{list-style:none;padding:0;margin:0}
+#pmi li{padding:8px;border-bottom:1px solid #e3e8ee;cursor:pointer;font-size:13px;min-height:44px}
+#pmi li.aktiv{background:#ffe5e3}
+#tabs{display:none}
+@media (max-width:899px){
+  header h1{font-size:16px}
+  header .btn,header select{flex:1 1 auto}
+  #status{flex-basis:100%;order:9}
+  main{display:block;position:relative}
+  .panel{position:absolute;inset:0;display:none;border:0}
+  main[data-tab=zeichnung] #p-zeichnung,main[data-tab="3d"] #p-3d,main[data-tab=masse] #p-masse,main[data-tab=info] #p-info{display:block}
+  #p-info{max-height:none}
+  #viewcube{width:96px;height:96px}
+  #werkzeuge{max-width:calc(100% - 115px)}
+  #legende{display:none}
+  #tabs{display:flex;border-top:1px solid #c5cfdb;background:#fff;padding-bottom:env(safe-area-inset-bottom)}
+  #tabs button{flex:1;min-height:52px;border:0;background:none;font:inherit;font-size:15px;color:#456}
+  #tabs button.aktiv{color:#2f6fd0;font-weight:600;box-shadow:inset 0 3px 0 #2f6fd0}
+}

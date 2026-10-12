@@ -69,10 +69,10 @@
   </div>
 </main>
 <script type="module">
-// Quelle: ?quelle=cdn (Standard) oder ?quelle=lokal (Dateien in ./vendor/, benötigt einen HTTP-Server)
+// Quelle: ?quelle=cdn (Standard) oder ?quelle=lokal (Dateien in ../vendor/, benötigt einen HTTP-Server)
 const params = new URLSearchParams(location.search);
 const LOKAL = params.get('quelle') === 'lokal';
-const BASIS = LOKAL ? new URL('./vendor/', location.href).href : null;
+const BASIS = LOKAL ? new URL('../vendor/', location.href).href : null;
 const URLS = LOKAL ? {
   replicad: BASIS + 'replicad.js', oc: BASIS + 'replicad_single.js',
   wasm: BASIS + 'replicad_single.wasm', three: BASIS + 'three.module.js'
@@ -84,7 +84,7 @@ const URLS = LOKAL ? {
 };
 const $ = id => document.getElementById(id);
 const status = t => { $('status').textContent = t; };
-$('quelle').innerHTML = `Quelle: <b>${LOKAL ? 'lokal (./vendor/)' : 'CDN (jsDelivr)'}</b> · Seite über <b>${location.protocol}</b>`;
+$('quelle').innerHTML = `Quelle: <b>${LOKAL ? 'lokal (../vendor/)' : 'CDN (jsDelivr)'}</b> · Seite über <b>${location.protocol}</b>`;
 const T0 = performance.now();
 const sek = () => ((performance.now() - T0) / 1000).toFixed(1) + ' s';
 window.__test = { phase: 'laden' };

@@ -8,7 +8,9 @@ import recon
 from sketch import ReconError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EX, JOBS, STATIC = (os.path.join(ROOT, d) for d in ("examples", "jobs", "static"))
+EX = os.path.join(os.path.dirname(ROOT), "examples")
+JOBS, STATIC = (os.path.join(ROOT, d) for d in ("jobs", "static"))
+os.makedirs(JOBS, exist_ok=True)
 EXAMPLES = [
     ("01_flansch", "01_flansch.pdf", "Flansch (Drehteil, Lochkreis, Passung)", "Vektor-PDF"),
     ("02_welle", "02_welle.pdf", "Abtriebswelle (Absätze, Kegel, Fasen)", "Vektor-PDF"),

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<title>drawing2cad – Zeichnung → 3D-CAD</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+<header>
+  <h1>drawing2cad</h1>
+  <label class="btn primaer">📄 Datei<input id="datei" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,application/pdf,image/*" hidden></label>
+  <label class="btn kamera">📷 Foto<input id="kamera" type="file" accept="image/*" capture="environment" hidden></label>
+  <select id="beispiel" aria-label="Beispiel laden"><option value="">Beispiel laden …</option></select>
+  <span id="status" role="status">Starte …</span>
+</header>
+<div id="fortschritt"><div></div></div>
+<main data-tab="3d">
+  <section id="p-zeichnung" class="panel">
+    <h2>Zeichnung</h2>
+    <div id="vorschau"><p class="leer">Noch keine Zeichnung. PDF (Vektor oder Scan), PNG, JPG oder TIFF wählen – oder ein Beispiel.</p></div>
+    <div id="meldungen"></div>
+  </section>
+  <section id="p-3d" class="panel">
+    <div id="ansicht">
+      <div id="labels"></div>
+      <canvas id="viewcube" title="ViewCube: Fläche, Kante oder Ecke antippen"></canvas>
+      <div id="werkzeuge">
+        <button id="fit" class="btn" title="Alles zeigen">⤢ Alles</button>
+        <label class="chk"><input type="checkbox" id="o-farben" checked> Typfarben</label>
+        <label class="chk"><input type="checkbox" id="o-kanten" checked> Kanten</label>
+        <label class="chk"><input type="checkbox" id="o-pmi" checked> PMI</label>
+      </div>
+      <div id="legende"></div>
+      <div id="auswahl" hidden></div>
+    </div>
+  </section>
+  <section id="p-masse" class="panel">
+    <h2>Maße <small>(ändern → Modell neu erzeugen)</small></h2>
+    <table id="masse"><thead><tr><th>ID</th><th>Text</th><th>Wert</th></tr></thead><tbody></tbody></table>
+    <div class="zeile"><button id="neu" class="btn primaer" disabled>Modell neu erzeugen</button><button id="zurueck" class="btn" disabled>Zurücksetzen</button></div>
+    <h2>Export</h2>
+    <div class="zeile">
+      <select id="schema" aria-label="STEP-Schema"><option value="AP214IS" selected>STEP AP214</option><option value="AP203">STEP AP203</option><option value="AP242DIS">STEP AP242</option></select>
+      <button id="x-step" class="btn primaer" disabled>STEP</button>
+      <button id="x-stl" class="btn" disabled>STL</button>
+      <button id="x-pmi" class="btn" disabled>PMI (JSON)</button>
+    </div>
+  </section>
+  <section id="p-info" class="panel">
+    <h2>Modell</h2>
+    <div id="info"><p class="leer">–</p></div>
+    <h2>PMI</h2>
+    <ul id="pmi"></ul>
+  </section>
+</main>
+<nav id="tabs">
+  <button data-tab="zeichnung">Zeichnung</button>
+  <button data-tab="3d" class="aktiv">3D</button>
+  <button data-tab="masse">Maße</button>
+  <button data-tab="info">Info</button>
+</nav>
+<script type="module" src="app/main.js"></script>
+</body>
+</html>
