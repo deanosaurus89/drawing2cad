@@ -164,7 +164,7 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
     const [, , l2] = I.pca(Q);
     if (Math.sqrt(l2) / Math.sqrt(Q.length) < 0.05) { e.typ = 'line'; continue; }
     const [c, r, rms] = I.fitCircle(Q); const chord = dist(Q[Q.length - 1], Q[0]);
-    if (rms < Math.max(0.05, Math.min(0.03 * r, 0.15)) && r < 300 && chord < 2.05 * r) Object.assign(e, { typ: 'arc', c, r });
+    if (rms < Math.max(0.05, 0.03 * r) && r < 300 && chord < 2.05 * r) Object.assign(e, { typ: 'arc', c, r, rms });
     else e.typ = 'spline';
   }
   // Spline-Läufe in Gerade + Bogen (z. B. Schräge mit Eckradius) zerlegen, wenn beide Teile sauber passen
@@ -179,13 +179,14 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
     };
     const out = [];
     for (const e of els) {
-      if (e.typ !== 'spline' || e.span.length < 12) { out.push(e); continue; }
+      // auch grob passende große Bögen prüfen (Schräge + Eckradius wird sonst ein flacher Großbogen)
+      if (!(e.typ === 'spline' || (e.typ === 'arc' && e.rms > 0.15)) || e.span.length < 12) { out.push(e); continue; }
       let best = null;
       for (let k = 4; k < e.span.length - 4; k++) {
         const A = fitPart(e.span.slice(0, k + 1).map(i => P[i])), B = fitPart(e.span.slice(k).map(i => P[i]));
         if (A && B && !(A.typ === 'line' && B.typ === 'line')) { const err = Math.max(A.err, B.err); if (!best || err < best.err) best = { k, A, B, err }; }
       }
-      if (!best) { out.push(e); continue; }
+      if (!best || (e.typ === 'arc' && best.err > e.rms / 3)) { out.push(e); continue; }
       out.push(Object.assign({ span: e.span.slice(0, best.k + 1) }, best.A), Object.assign({ span: e.span.slice(best.k) }, best.B));
     }
     els = out;
