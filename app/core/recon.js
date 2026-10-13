@@ -436,8 +436,144 @@ function circumC(a, b, c) {
   return [(A * (b[1] - c[1]) + B * (c[1] - a[1]) + C * (a[1] - b[1])) / d, (A * (c[0] - b[0]) + B * (a[0] - c[0]) + C * (b[0] - a[0])) / d];
 }
 
+// Lochkreis aus starken + schwachen Kreisen (gleicher Radius, gemeinsamer Mittelpunkt, gleiche Teilung); fehlende ergänzen
+function boltPattern(strong, weak, s) {
+  const all = strong.map(c => ({ c, w: false })).concat(weak.map(c => ({ c, w: true })));
+  let best = null;
+  for (const seed of all) {
+    if (seed.w || seed.c.r > 4) continue;
+    const grp = all.filter(o => Math.abs(o.c.r - seed.c.r) < 0.15 * seed.c.r);
+    if (grp.length < 3) continue;
+    const [m, R, rms] = Ra.fitCircleFn(grp.map(o => o.c.center));
+    if (!(R > 2 * seed.c.r) || rms > 0.04 * R) continue;
+    const ang = grp.map(o => Math.atan2(o.c.center[1] - m[1], o.c.center[0] - m[0]));
+    let N = null;
+    for (let k = 3; k <= 12 && N == null; k++) {
+      const st = 2 * Math.PI / k; const ok = ang.every(a => { const d = ((a - ang[0]) / st) % 1; const e = Math.min(Math.abs(d), 1 - Math.abs(d)); return e * st < 0.06; });
+      if (ok && k >= grp.length) N = k;
+    }
+    if (N == null) continue;
+    if (!best || grp.length > best.grp.length) best = { grp, m, R, N, a0: ang[0], r: grp.filter(o => !o.w).reduce((a, o) => a + o.c.r, 0) / grp.filter(o => !o.w).length };
+  }
+  if (!best) return null;
+  const holes = []; const st = 2 * Math.PI / best.N;
+  for (let k = 0; k < best.N; k++) { const a = best.a0 + k * st; holes.push(prim('circle', { center: [best.m[0] + best.R * Math.cos(a), best.m[1] + best.R * Math.sin(a)], r: best.r })); }
+  const hub = weak.filter(c => Math.hypot(c.center[0] - best.m[0], c.center[1] - best.m[1]) < 0.1 * best.R);
+  return { holes, m: best.m, pcd: 2 * best.R / s, N: best.N, gefunden: best.grp.length, schwach: best.grp.filter(o => o.w).length, hub };
+}
+
+// Tiefe einer Bohrung/Senkung aus den schraffierten Pixelgebieten eines (Raster-)Schnitts: Materialspalten bei Mitte ± 0,5r/0,8r
+function sectionColumn(ctx, secs, vi, it, dA, er) {
+  const s = ctx.s; const mF = ctx.layout.maps[vi];
+  for (const sec of secs) {
+    if (sec.view === vi || !sec.regions || sec.regions.length < 2) continue;
+    const mS = ctx.layout.maps[sec.view]; if (!mS || mS.y[0] !== dA || mS.x[0] !== mF.x[0]) continue;
+    const faces = sec.regions.map(r => ({ poly: r.prims.flatMap(p => sample(p, 12)) }));
+    const partX = q => (q - mF.x[1]) * mF.x[2] / s, sheetX = X => mS.x[1] + X * s * mS.x[2], depth = y => (y - mS.y[1]) * mS.y[2] / s;
+    const X0 = partX(it.center[0]), R = it.r / s;
+    const v = ctx.views[sec.view]; if (sheetX(X0 - R) < v.lo[0] || sheetX(X0 + R) > v.hi[0]) continue;
+    const cols = [-0.8, -0.5, 0.5, 0.8].map(k => Sx.materialAlong(faces, sheetX(X0 + k * R)).map(([a, b]) => [depth(a), depth(b)].sort((x, y) => x - y)));
+    // Wand prüfen: knapp außerhalb des Kreises muss (mehr) Material liegen, sonst liegt das Element nicht im Schnitt
+    const T0 = er[1] - er[0]; const span = c => c.reduce((a, [x, y]) => a + (y - x), 0);
+    const outs = [-1.2, 1.2].map(k => span(Sx.materialAlong(faces, sheetX(X0 + k * R)).map(([a, b]) => [depth(a), depth(b)].sort((x, y) => x - y))));
+    const ins = Math.max(...cols.map(span));
+    if (!outs.every(o => o > ins + 0.2 * T0)) return null;
+    if (cols.some(c => !c.length)) { if (cols.every(c => !c.length)) return { rng: null, letter: sec.letter }; return null; }
+    const top = cols.map(c => Math.max(...c.map(x => x[1]))), bot = cols.map(c => Math.min(...c.map(x => x[0])));
+    const T = er[1] - er[0];
+    const tol = 0.06 * T;
+    if (Math.max(...top) - Math.min(...top) > tol || Math.max(...bot) - Math.min(...bot) > tol) return null; // schräg (Kegel) -> keine Stufe
+    const t = top.reduce((a, b) => a + b) / 4, b = bot.reduce((a, b) => a + b) / 4;
+    if (t < er[1] - 0.1 * T && b <= er[0] + 0.06 * T) return { rng: [t, er[1] + 1], letter: sec.letter };
+    if (b > er[0] + 0.1 * T && t >= er[1] - 0.06 * T) return { rng: [er[0] - 1, b], letter: sec.letter };
+    return 'voll';
+  }
+  return null;
+}
+
+// Schräge/Fase am Umfang: in der Hauptansicht begleitet eine dünne Tangentialkante die Umrissbögen im konstanten Abstand w.
+// Modell: Fase entlang dieser Bögen auf einer Plattenseite (Abstand w in der Plattenebene, Winkel aus Angabe 120° bzw. Annahme).
+function peripheralChamfer(ctx, solid, outerLoop, vi, dA, ext) {
+  const dr = ctx.dr, s = ctx.s; const items = loopItems(outerLoop.loop);
+  const poly = items.flatMap(it => it.pts);
+  const inside = q => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < (b[0] - a[0]) * (q[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+  const arcs = [];
+  for (const it of items) {
+    if (it.k !== 'arc' || it.pts.length < 3) continue;
+    const P = it.pts, c = circumC(P[0], P[Math.floor(P.length / 2)], P[P.length - 1]); if (!c) continue;
+    const r = Math.hypot(P[0][0] - c[0], P[0][1] - c[1]); if (r < 5) continue;
+    const a0 = Math.atan2(P[0][1] - c[1], P[0][0] - c[0]), am = Math.atan2(P[Math.floor(P.length / 2)][1] - c[1], P[Math.floor(P.length / 2)][0] - c[0]), a1 = Math.atan2(P[P.length - 1][1] - c[1], P[P.length - 1][0] - c[0]);
+    let sw = a1 - a0; const ccw = ((am - a0 + 4 * Math.PI) % (2 * Math.PI)) < ((a1 - a0 + 4 * Math.PI) % (2 * Math.PI)); sw = ccw ? (sw + 4 * Math.PI) % (2 * Math.PI) : -((a0 - a1 + 4 * Math.PI) % (2 * Math.PI));
+    const offs = [];
+    for (let k = 1; k < 16; k++) {
+      const a = a0 + sw * k / 16; const p = [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]; let n = [Math.cos(a), Math.sin(a)];
+      if (!inside([p[0] + 0.5 * n[0], p[1] + 0.5 * n[1]])) n = [-n[0], -n[1]];
+      for (let t = 0.7; t < 4; t += 0.02) if (dr.thinAt(p[0] + t * n[0], p[1] + t * n[1])) { let t2 = t; while (t2 < 4.5 && dr.thinAt(p[0] + t2 * n[0], p[1] + t2 * n[1])) t2 += 0.02; offs.push((t + t2 - 0.02) / 2); break; }
+    }
+    if (offs.length < 10) continue;
+    offs.sort((x, y) => x - y); const med = offs[Math.floor(offs.length / 2)];
+    const good = offs.filter(o => Math.abs(o - med) < 0.25).length; if (good < 0.6 * 15) continue;
+    const convex = inside([c[0] + (P[0][0] - c[0]) * 0.9, c[1] + (P[0][1] - c[1]) * 0.9]);
+    arcs.push({ c, r, w: med, len: Math.abs(sw) * r, a0, sw, convex });
+  }
+  if (!arcs.length) return null;
+  const w = arcs.map(a => a.w).sort((x, y) => x - y)[Math.floor(arcs.length / 2)] / s;
+  const ang = (ctx.phrases || []).some(ph => /(^|\D)120\s?[,.]?0?\s?°/.test(ph.text)) ? 'gelesen' : 'angenommen';
+  const f = pmap(ctx, vi); const k = AX[dA]; const top = ext[dA][1]; const d = w * Math.tan(60 * Math.PI / 180);
+  const v3 = m => [m.X ?? 0, m.Y ?? 0, m.Z ?? 0];
+  const before = vol(solid); let out = solid;
+  for (const a of arcs) {
+    const C = v3(f(a.c)); C[k] = top; const ex = v3(f([a.c[0] + 1, a.c[1]])).map((x, i) => x - v3(f(a.c))[i]), ey = v3(f([a.c[0], a.c[1] + 1])).map((x, i) => x - v3(f(a.c))[i]);
+    const axis = [ex[1] * ey[2] - ex[2] * ey[1], ex[2] * ey[0] - ex[0] * ey[2], ex[0] * ey[1] - ex[1] * ey[0]];
+    const R0 = a.r / s, uu = ex.map((x, i) => x * Math.cos(a.a0) + ey[i] * Math.sin(a.a0)); const down = [0, 0, 0]; down[k] = -1;
+    const at = (rr, dd) => C.map((x, i) => x + uu[i] * rr + down[i] * dd);
+    const pe = at(R0 + (a.convex ? 0.02 : -0.02), -0.02), pi = at(a.convex ? R0 - w : R0 + w, -0.02), pd = at(R0 + (a.convex ? 0.02 : -0.02), d);
+    const wire = R.assembleWire([R.makeLine(pe, pi), R.makeLine(pi, pd), R.makeLine(pd, pe)]);
+    const tool = onlySolid(R.revolution(R.makeFace(wire), C, axis, a.sw * 180 / Math.PI));
+    out = onlySolid(out.cut(tool));
+  }
+  const dv = before - vol(out); if (!(dv > 0) || !isValid(out)) return null;
+  const L = arcs.reduce((x, a) => x + a.len, 0) / s;
+  return { solid: out, feat: { typ: 'Schräge', text: `Schräge am Umfang entlang ${arcs.length} Umrissbögen (≈ ${L.toFixed(0)} mm): Breite ${w.toFixed(2)} mm aus Tangentialkante der Hauptansicht, Winkel 120° (${ang === 'gelesen' ? 'aus Maßtext' : 'Maßtext nicht gelesen – Normwert angenommen'}), Volumen −${dv.toFixed(0)} mm³` } };
+}
+
+// G1-Prüfung am fertigen B-Rep: Schnitt in halber Dicke, Tangenten an gemeinsamen Endpunkten (mind. ein Kreisbogen beteiligt)
+function g1BRep(solid, dA, ext) {
+  const k = AX[dA]; const mid = (ext[dA][0] + ext[dA][1]) / 2; const lo = [-1e4, -1e4, -1e4], hi = [1e4, 1e4, 1e4]; lo[k] = mid - 0.001; hi[k] = mid + 0.001;
+  const sec = solid.intersect(R.makeBox(lo, hi));
+  const P = v => [v.x, v.y, v.z];
+  const es = sec.edges.filter(e => Math.abs(P(e.startPoint)[k] - lo[k]) < 1e-4 && Math.abs(P(e.endPoint)[k] - lo[k]) < 1e-4)
+    .map(e => ({ circ: e.geomType === 'CIRCLE', s: P(e.startPoint), e: P(e.endPoint), ts: P(e.tangentAt(0)), te: P(e.tangentAt(1)) }));
+  const same = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-3;
+  const ang = (a, b) => { const l = Math.hypot(...a) * Math.hypot(...b); return Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / l))) * 180 / Math.PI; };
+  let n = 0, t = 0, maxT = 0;
+  for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
+    const A = es[i], B = es[j]; if (!A.circ && !B.circ) continue;
+    let w = null;
+    if (same(A.e, B.s)) w = ang(A.te, B.ts); else if (same(B.e, A.s)) w = ang(B.te, A.ts);
+    else if (same(A.e, B.e)) w = ang(A.te, B.te.map(x => -x)); else if (same(A.s, B.s)) w = ang(A.ts.map(x => -x), B.ts);
+    if (w == null || w > 170) continue; n++; if (w < 0.5) { t++; maxT = Math.max(maxT, w); }
+  }
+  return { n, t, maxT };
+}
+
+function projectionMethod(phrases) {
+  const t = (phrases || []).map(p => p.text.toUpperCase()).join(' | ');
+  if (/FIRST\s*ANGLE|PROJEKTIONSMETHODE\s*1\b|ERSTWINKEL|METHODE\s*E\b/.test(t)) return 1;
+  if (/THIRD\s*ANGLE|PROJEKTIONSMETHODE\s*3\b|DRITTWINKEL|METHODE\s*A\b/.test(t)) return 3;
+  return null;
+}
 function reconstructPrism(ctx, msgs) {
   const L = ctx.layout; const s = ctx.s;
+  {
+    const pm = projectionMethod(ctx.phrases);
+    if (pm === 1) msgs.push('Projektionsmethode 1 (Erstwinkel, „FIRST ANGLE“) aus dem Schriftfeld: Ansicht unterhalb = Draufsicht, rechts = Seitenansicht von links.');
+    else if (pm === 3 && L.maps) {
+      msgs.push('Projektionsmethode 3 (Drittwinkel, „THIRD ANGLE“) aus dem Schriftfeld: Ansicht unterhalb = Untersicht, rechts = Seitenansicht von rechts – Tiefenrichtung der Nebenansichten gespiegelt.');
+      if (L.T != null && L.maps[L.T]) { const v = ctx.views[L.T]; L.maps[L.T] = { ...L.maps[L.T], y: [L.maps[L.T].y[0], v.hi[1], -1] }; }
+      if (L.S != null && L.maps[L.S]) { const v = ctx.views[L.S], m = L.maps[L.S]; L.maps[L.S] = { ...m, x: m.x[2] === -1 ? [m.x[0], v.lo[0], 1] : [m.x[0], v.hi[0], -1] }; }
+    } else msgs.push('Projektionsmethode nicht im Schriftfeld gefunden – Erstwinkel (DIN) angenommen.');
+  }
   const roles = ['F', 'T', 'S'].filter(r => L[r] != null).map(r => [r, L[r]]);
   const ext = {};
   for (const [, vi] of roles) {
@@ -491,7 +627,18 @@ function reconstructPrism(ctx, msgs) {
     const inside = (lo, hi) => lo[0] >= outer.lo[0] - TOL && lo[1] >= outer.lo[1] - TOL && hi[0] <= outer.hi[0] + TOL && hi[1] <= outer.hi[1] + TOL;
     const items = loops.slice(1).filter(l => inside(l.lo, l.hi)).map(l => ['schleife', l])
       .concat(circles.filter(c => c.center[0] > outer.lo[0] && c.center[1] > outer.lo[1] && c.center[0] < outer.hi[0] && c.center[1] < outer.hi[1]).map(c => ['kreis', c]));
-    const skipC = new Set();
+    const skipC = new Set(), skipCol = new Set();
+    {
+      const bp = boltPattern(circles, ctx.views[vi].weak || [], s);
+      if (bp) {
+        const near = (a, b) => Math.hypot(a.center[0] - b.center[0], a.center[1] - b.center[1]) < 0.5 * a.r;
+        const neu = bp.holes.filter(h => !circles.some(c => near(h, c)));
+        // gefundene starke Kreise des Musters auf exakte Lage setzen
+        for (const h of bp.holes) { const c = circles.find(c => near(h, c)); if (c) { c.center = h.center; c.r = h.r; } }
+        for (const h of neu.concat(bp.hub.filter(hc => !circles.some(c => near(hc, c) && Math.abs(c.r - hc.r) < 0.15 * hc.r)))) items.push(['kreis', h]);
+        feats.push({ typ: 'Bohrungsmuster', text: `Lochkreis Ø${bp.pcd.toFixed(2)} mm mit ${bp.N} Bohrungen Ø${(2 * bp.holes[0].r / s).toFixed(2)} mm (${bp.gefunden} erkannt, davon ${bp.schwach} nur teilweise sichtbar; ${neu.length} ergänzt aus Teilung)` + (bp.hub.length ? `, ${bp.hub.length} Kreis(e) im Lochkreismittelpunkt aus Teilkonturen` : '') });
+      }
+    }
     for (const [kind, it] of items) {
       if (skipC.has(it)) continue;
       let lo, hi;
@@ -499,6 +646,7 @@ function reconstructPrism(ctx, msgs) {
       else { lo = it.lo; hi = it.hi; }
       let rng = depthRange(ctx, vi, lo, hi, dA, ext[dA]); let ausSchnitt = null;
       if (!rng) { const sd = sectionDepth(ctx, secs, vi, lo, hi, dA, ext[dA]); if (sd === 'voll') continue; if (sd) { rng = sd.rng; ausSchnitt = sd.letter; } }
+      if (!rng && kind === 'kreis' && !skipCol.has(it)) { const sc = sectionColumn(ctx, secs, vi, it, dA, ext[dA]); if (sc && sc !== 'voll' && sc.rng) { rng = sc.rng; ausSchnitt = sc.letter; } }
       // Bereich ohne Außenfläche oder fast ohne Tiefe ist als Bohrung aus der Ansicht unplausibel -> durchgehend
       if (rng && kind === "kreis" && (Math.min(rng[1], ext[dA][1]) - Math.max(rng[0], ext[dA][0]) < 0.05 * (ext[dA][1] - ext[dA][0]))) { rng = null; ausSchnitt = null; }
       const durch = !rng || (rng[0] < ext[dA][0] && rng[1] > ext[dA][1]);
@@ -542,6 +690,11 @@ function reconstructPrism(ctx, msgs) {
       feats.push({ typ: 'Ausschnitt', text: `${desc} in Richtung ${dA}, ${tiefe}` });
     }
   }
+  if (ctx.raster && ctx.dr && ctx.dr.thinAt && L.F != null && info.F && info.F[0].length) {
+    try { const pc = peripheralChamfer(ctx, solid, info.F[0][0], L.F, dirs.F, ext); if (pc) { solid = pc.solid; feats.push(pc.feat); } }
+    catch (e) { msgs.push('Schräge am Umfang erkannt, aber nicht modellierbar (' + (e.message || e) + ').'); }
+  }
+  try { const g = g1BRep(solid, dirs.F && L.F != null ? 'Y' : (L.T != null ? 'Z' : 'X'), ext); if (g.n) feats.push({ typ: 'Tangentialität (B-Rep)', text: `Geprüft am B-Rep (Schnitt in halber Dicke): ${g.t} von ${g.n} Übergängen mit Kreisbögen tangential G1 (Knick < 0,5°${g.t ? ', max. ' + g.maxT.toFixed(2) + '°' : ''}), ${g.n - g.t} Ecken` }); } catch (e) { if (globalThis.DBG) console.log('g1', e); }
   return [solid, feats];
 }
 
@@ -752,6 +905,7 @@ export function processDrawing(dr, edits, log = () => {}) {
     const pv = !dr.dpi_known ? Ra.perViewScales(dr, views, vals) : null;
     if (pv) {
       const big = views.reduce((a, b, i) => b.size[0] * b.size[1] > views[a].size[0] * views[a].size[1] ? i : a, 0);
+      const fine = Ra.fineScale(views[big], vals, pv[big]); if (fine) { for (let i = 0; i < pv.length; i++) pv[i] /= fine.f; msgs.push(`Maßstab-Feinabgleich über ${fine.n} Maßzahlen: Faktor ${fine.f.toFixed(4)} (Bildauflösung geraten, Maßzahlen haben Vorrang)`); }
       s = pv[big]; const Fs = dr.sheet_f || 1;
       src = Fs !== 1 ? `Blatt laut ${dr.sheet_fmt != null ? 'Formatangabe A' + dr.sheet_fmt : 'Schriftfeld-Maßstab + Maßzahlen'} ${Math.round(dr.page_w * Fs)}×${Math.round(dr.page_h * Fs)} mm (DPI-Schätzung korrigiert), Maßstab ${Ra.fmtScale(s * Fs)}`
         : `Normblatt ${Math.round(dr.page_w)}×${Math.round(dr.page_h)} mm, Normmaßstab ${Ra.fmtScale(s)}` + (dr.scale_txt && Math.abs(dr.scale_txt / s - 1) < 1e-6 ? ' (Schriftfeld, durch Maßzahlen bestätigt)' : ' aus den Maßzahlen');
@@ -776,9 +930,10 @@ export function processDrawing(dr, edits, log = () => {}) {
     msgs.push(`Maßstab: ${src}`); tol = 0.15;
   } else { s = dr.scale; tol = TOL; msgs.push(`Maßstab ${Ra.fmtScale(s)} (${dr.scale_src})`); }
   if (globalThis.DBG) for (const v of views) console.log('VIEW', JSON.stringify(v.prims.map(p=>[p.kind, p.r&&+p.r.toFixed(2), p.sweep&&+p.sweep.toFixed(2), (p.pts||[]).map(q=>q.map(x=>+x.toFixed(1)))])).slice(0,600), v.lo.map(x => x.toFixed(1)), v.hi.map(x => x.toFixed(1)), v.prims.length, v.prims.filter(p => p.kind === 'circle').map(c => c.r.toFixed(2) + '@' + c.center.map(x => x.toFixed(1))).join(' '));
+  for (const v of views) { v.weak = v.prims.filter(p => p.weak); v.prims = v.prims.filter(p => !p.weak); }
   const layout = detectLayout(views);
   if (globalThis.DBG) console.log('LAYOUT', JSON.stringify(layout));
-  const ctx = new Dm.Ctx(views, layout, s); ctx.tol = tol; ctx.phrases = dr.phrases; ctx.msgs = msgs; ctx.raster = raster;
+  const ctx = new Dm.Ctx(views, layout, s); ctx.tol = tol; ctx.phrases = dr.phrases; ctx.msgs = msgs; ctx.raster = raster; ctx.dr = dr;
   const sections = Sx.findSections(views, strokes, lab, hatch, msgs);
   for (const sec of sections) sec.hatch = hatch.filter(([a, b]) => { const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], v = views[sec.view]; return m[0] > v.lo[0] - 1 && m[0] < v.hi[0] + 1 && m[1] > v.lo[1] - 1 && m[1] < v.hi[1] + 1; });
   // Raster: vereinzelte „Schraffur“-Treffer (Textreste, Pfeile) sind kein Schnitt

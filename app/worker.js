@@ -38,7 +38,7 @@ async function init(base) {
 
 function run(id, dr, edits) {
   const t = performance.now();
-  const work = structuredClone(dr);
+  const work = structuredClone(dr); if (dr.thinAt) Object.defineProperty(work, "thinAt", { enumerable: false, value: dr.thinAt });
   const { solid, result, mesh, edgeMesh } = RC.processDrawing(work, edits, txt => prog(id, txt));
   lastSolid = solid;
   result.ms = Math.round(performance.now() - t);

@@ -126,6 +126,19 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
       }
     }
   }
+  // schwacher Kreis: Bohrung mit angesetzten Mittel-/Hinweislinien (nur für Lochbild-/Mustererkennung, recon prüft gegen Maße)
+  {
+    const bx = [Math.min(...P.map(q => q[0])), Math.max(...P.map(q => q[0]))], by = [Math.min(...P.map(q => q[1])), Math.max(...P.map(q => q[1]))];
+    let [c, r] = I.fitCircle(P);
+    for (let it = 0; it < 4; it++) {
+      const res = P.map(q => Math.abs(Math.hypot(q[0] - c[0], q[1] - c[1]) - r)); const srt = [...res].sort((a, b) => a - b);
+      const th = Math.max(0.08, srt[Math.floor(srt.length * 0.6)] * 1.5); const S = P.filter((q, k) => res[k] < th); if (S.length < 8) break; [c, r] = I.fitCircle(S);
+    }
+    const inl = P.filter(q => Math.abs(Math.hypot(q[0] - c[0], q[1] - c[1]) - r) < 0.08);
+    const bins = new Set(inl.map(q => Math.floor((Math.atan2(q[1] - c[1], q[0] - c[0]) + Math.PI) / (Math.PI / 8))));
+    if (r > 0.8 && r < 12 && inl.length >= 0.35 * n && bins.size >= 10 && bx[1] - bx[0] < 2.6 * r && by[1] - by[0] < 2.6 * r && bx[0] > c[0] - 1.3 * r && by[0] > c[1] - 1.3 * r)
+      return [prim('circle', { center: c, r, weak: true })];
+  }
   const idx = I.approxPolyClosed(cnt, pxEps);
   if (idx.length < 3) return [];
   let segs = idx.map((i0, k) => {
@@ -151,8 +164,31 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
     const [, , l2] = I.pca(Q);
     if (Math.sqrt(l2) / Math.sqrt(Q.length) < 0.05) { e.typ = 'line'; continue; }
     const [c, r, rms] = I.fitCircle(Q); const chord = dist(Q[Q.length - 1], Q[0]);
-    if (rms < Math.max(0.05, 0.03 * r) && r < 300 && chord < 2.05 * r) Object.assign(e, { typ: 'arc', c, r });
+    if (rms < Math.max(0.05, Math.min(0.03 * r, 0.15)) && r < 300 && chord < 2.05 * r) Object.assign(e, { typ: 'arc', c, r });
     else e.typ = 'spline';
+  }
+  // Spline-Läufe in Gerade + Bogen (z. B. Schräge mit Eckradius) zerlegen, wenn beide Teile sauber passen
+  {
+    const fitPart = Q => {
+      if (Q.length < 3) return null;
+      const [, , l2] = I.pca(Q); const lr = Math.sqrt(l2 / Q.length);
+      if (lr < 0.06) return { typ: 'line', err: lr };
+      const [c, r, rms] = I.fitCircle(Q); const chord = dist(Q[Q.length - 1], Q[0]);
+      if (rms < Math.max(0.05, Math.min(0.03 * r, 0.12)) && r < 300 && chord < 2.05 * r) return { typ: 'arc', c, r, err: rms };
+      return null;
+    };
+    const out = [];
+    for (const e of els) {
+      if (e.typ !== 'spline' || e.span.length < 12) { out.push(e); continue; }
+      let best = null;
+      for (let k = 4; k < e.span.length - 4; k++) {
+        const A = fitPart(e.span.slice(0, k + 1).map(i => P[i])), B = fitPart(e.span.slice(k).map(i => P[i]));
+        if (A && B && !(A.typ === 'line' && B.typ === 'line')) { const err = Math.max(A.err, B.err); if (!best || err < best.err) best = { k, A, B, err }; }
+      }
+      if (!best) { out.push(e); continue; }
+      out.push(Object.assign({ span: e.span.slice(0, best.k + 1) }, best.A), Object.assign({ span: e.span.slice(best.k) }, best.B));
+    }
+    els = out;
   }
   const ldir = e => { const a = P[e.span[0]], b = P[e.span[e.span.length - 1]]; const L = Math.hypot(b[0] - a[0], b[1] - a[1]) + 1e-12; return [(b[0] - a[0]) / L, (b[1] - a[1]) / L]; };
   const coll = (a, b) => Math.abs(cross2(ldir(a), ldir(b))) < 0.035 && (ldir(a)[0] * ldir(b)[0] + ldir(a)[1] * ldir(b)[1]) > 0;
@@ -213,7 +249,104 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
       prims.push(prim('spline', { poly: [v0.slice(), ...inner, v1.slice()] }));
     }
   }
-  return prims;
+  return refineLoop(prims);
+}
+
+// ---- Kontur-Nachbearbeitung: Spline zwischen zwei Geraden als Kreisbogen (robust), G1-Einrasten Gerade/Bogen und Bogen/Bogen
+const pS = p => p.kind === 'spline' ? p.poly[0] : p.pts[0];
+const pE = p => p.kind === 'spline' ? p.poly[p.poly.length - 1] : p.pts[p.pts.length - 1];
+function arcTan(a, atEnd) {
+  const q = atEnd ? a.pts[1] : a.pts[0]; const rx = q[0] - a.center[0], ry = q[1] - a.center[1]; const L = Math.hypot(rx, ry);
+  return a.sweep > 0 ? [-ry / L, rx / L] : [ry / L, -rx / L];
+}
+function primTan(p, atEnd) {
+  if (p.kind === 'arc') return arcTan(p, atEnd);
+  const P = p.kind === 'spline' ? p.poly : p.pts; const a = atEnd ? P[P.length - 2] : P[0], b = atEnd ? P[P.length - 1] : P[1];
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+}
+const kinkDeg = (t1, t2) => Math.acos(Math.max(-1, Math.min(1, t1[0] * t2[0] + t1[1] * t2[1]))) * 180 / Math.PI;
+function arcMidNear(c, r, q) { const L = Math.hypot(q[0] - c[0], q[1] - c[1]) || 1; return [c[0] + (q[0] - c[0]) / L * r, c[1] + (q[1] - c[1]) / L * r]; }
+function arcMid(a) { const a0 = Math.atan2(a.pts[0][1] - a.center[1], a.pts[0][0] - a.center[0]) + a.sweep / 2; return [a.center[0] + a.r * Math.cos(a0), a.center[1] + a.r * Math.sin(a0)]; }
+function lineHit(c, r, l, near) {
+  const p = l.pts[0], q = l.pts[1]; const L = Math.hypot(q[0] - p[0], q[1] - p[1]); const d = [(q[0] - p[0]) / L, (q[1] - p[1]) / L];
+  const t0 = (c[0] - p[0]) * d[0] + (c[1] - p[1]) * d[1]; const f = [p[0] + t0 * d[0], p[1] + t0 * d[1]]; const h = Math.hypot(c[0] - f[0], c[1] - f[1]);
+  if (h > r + 0.3) return null;
+  if (h > r - 0.05 * r) return { pt: f, tangent: true };
+  const w = Math.sqrt(r * r - h * h); const A = [f[0] - w * d[0], f[1] - w * d[1]], B = [f[0] + w * d[0], f[1] + w * d[1]];
+  return { pt: dist(A, near) < dist(B, near) ? A : B, tangent: false };
+}
+function ransacCircle(Q) {
+  let best = null; const n = Q.length; const st = Math.max(1, Math.floor(n / 14));
+  for (let i = 0; i < n; i += st) for (let j = i + st; j < n; j += st) for (let k = j + st; k < n; k += st) {
+    const a = arcFrom3pts(Q[i], Q[j], Q[k]); if (!a || a.r > 150) continue;
+    const inl = Q.filter(q => Math.abs(dist(q, a.center) - a.r) < 0.1);
+    if (!best || inl.length > best.length) best = inl;
+  }
+  if (!best || best.length < 0.55 * n || best.length < 6) return null;
+  const [c, r, rms] = I.fitCircle(best); return rms < 0.06 ? { c, r, frac: best.length / n } : null;
+}
+export function refineLoop(prims) {
+  const n = prims.length; if (n < 3) return prims;
+  const out = prims.slice(); let g1 = 0, arcsFromSpline = 0;
+  // Endpunkt einer Geraden nur verschieben, wenn sie dabei nicht umklappt/verschwindet und sich der Punkt kaum bewegt
+  const okMove = (p, v, atEnd) => { if (p.kind !== 'line') return false; const a = atEnd ? p.pts[0] : v, b = atEnd ? v : p.pts[1]; const d0 = [p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]], d1 = [b[0] - a[0], b[1] - a[1]];
+    return d0[0] * d1[0] + d0[1] * d1[1] > 0 && Math.hypot(...d1) > 0.1 && dist(atEnd ? p.pts[1] : p.pts[0], v) < 2.5; };
+  const setEnd = (p, v) => { if (p.kind === 'line') p.pts[1] = v.slice(); };
+  const setStart = (p, v) => { if (p.kind === 'line') p.pts[0] = v.slice(); };
+  // 1) Spline zwischen zwei Geraden -> Bogen
+  for (let k = 0; k < n; k++) {
+    const e = out[k], A = out[(k - 1 + n) % n], B = out[(k + 1) % n];
+    if (e.kind !== 'spline' || A.kind !== 'line' || B.kind !== 'line' || e.poly.length < 8) continue;
+    const ci = ransacCircle(e.poly); if (!ci) continue;
+    const h0 = lineHit(ci.c, ci.r, A, pS(e)), h1 = lineHit(ci.c, ci.r, B, pE(e)); if (!h0 || !h1) continue;
+    if (dist(h0.pt, pS(e)) > 8 || dist(h1.pt, pE(e)) > 8) continue;
+    const mid = arcMidNear(ci.c, ci.r, e.poly[Math.floor(e.poly.length / 2)]);
+    const a = arcFrom3pts(h0.pt, mid, h1.pt); if (!a) continue;
+    // Gerade darf nicht umklappen
+    const okLen = (l, from, to) => { const d0 = [l.pts[1][0] - l.pts[0][0], l.pts[1][1] - l.pts[0][1]]; const d1 = [to[0] - from[0], to[1] - from[1]]; return d0[0] * d1[0] + d0[1] * d1[1] > 0; };
+    if (!okLen(A, A.pts[0], h0.pt) || !okLen(B, h1.pt, B.pts[1])) continue;
+    setEnd(A, h0.pt); setStart(B, h1.pt); out[k] = a; arcsFromSpline++;
+  }
+  // 2) G1 einrasten
+  for (let k = 0; k < n; k++) {
+    const a = out[k]; if (a.kind !== 'arc') continue;
+    const A = out[(k - 1 + n) % n], B = out[(k + 1) % n];
+    const kA = A.kind !== 'spline' ? kinkDeg(primTan(A, true), arcTan(a, false)) : 99, kB = B.kind !== 'spline' ? kinkDeg(arcTan(a, true), primTan(B, false)) : 99;
+    const tA = A.kind === 'line' && kA > 0.05 && kA < 8, tB = B.kind === 'line' && kB > 0.05 && kB < 8;
+    const side = (l, c) => { const p = l.pts[0], q = l.pts[1]; return Math.sign((q[0] - p[0]) * (c[1] - p[1]) - (q[1] - p[1]) * (c[0] - p[0])); };
+    const offLine = (l, sgn, r) => { const p = l.pts[0], q = l.pts[1]; const L = Math.hypot(q[0] - p[0], q[1] - p[1]); const nrm = [-(q[1] - p[1]) / L * sgn, (q[0] - p[0]) / L * sgn]; return { p: [p[0] + nrm[0] * r, p[1] + nrm[1] * r], d: [(q[0] - p[0]) / L, (q[1] - p[1]) / L] }; };
+    const foot = (l, c) => { const p = l.pts[0], q = l.pts[1]; const L = Math.hypot(q[0] - p[0], q[1] - p[1]); const d = [(q[0] - p[0]) / L, (q[1] - p[1]) / L]; const t = (c[0] - p[0]) * d[0] + (c[1] - p[1]) * d[1]; return [p[0] + t * d[0], p[1] + t * d[1]]; };
+    let c = null;
+    if (tA && tB) {
+      const oa = offLine(A, side(A, a.center), a.r), ob = offLine(B, side(B, a.center), a.r);
+      const t = solve2(oa.d[0], -ob.d[0], oa.d[1], -ob.d[1], ob.p[0] - oa.p[0], ob.p[1] - oa.p[1]); if (t) c = [oa.p[0] + t[0] * oa.d[0], oa.p[1] + t[0] * oa.d[1]];
+      if (c && dist(c, a.center) < 0.3 * a.r) { const j0 = foot(A, c), j1 = foot(B, c); if (!okMove(A, j0, true) || !okMove(B, j1, false)) continue; const na = arcFrom3pts(j0, arcMidNear(c, a.r, arcMid(a)), j1); if (na) { setEnd(A, j0); setStart(B, j1); out[k] = na; g1 += 2; } }
+      continue;
+    }
+    if (tA || tB) {
+      const L = tA ? A : B, far = tA ? a.pts[1] : a.pts[0]; const o = offLine(L, side(L, a.center), a.r);
+      // Mittelpunkt auf Parallele im Abstand r, Abstand r zum festen Endpunkt
+      const t0 = (far[0] - o.p[0]) * o.d[0] + (far[1] - o.p[1]) * o.d[1]; const f = [o.p[0] + t0 * o.d[0], o.p[1] + t0 * o.d[1]]; const h = dist(far, f);
+      if (h > a.r) continue; const w = Math.sqrt(a.r * a.r - h * h);
+      const C1 = [f[0] - w * o.d[0], f[1] - w * o.d[1]], C2 = [f[0] + w * o.d[0], f[1] + w * o.d[1]]; c = dist(C1, a.center) < dist(C2, a.center) ? C1 : C2;
+      if (dist(c, a.center) > 0.3 * a.r) continue;
+      const j = foot(L, c); if (!okMove(L, j, tA)) continue; const mid = arcMidNear(c, a.r, arcMid(a));
+      const na = tA ? arcFrom3pts(j, mid, far) : arcFrom3pts(far, mid, j); if (!na) continue;
+      if (tA) setEnd(A, j); else setStart(B, j); out[k] = na; g1++;
+      continue;
+    }
+    // Bogen -> Bogen
+    if (B.kind === 'arc') {
+      const kk = kinkDeg(arcTan(a, true), arcTan(B, false)); if (!(kk > 0.05 && kk < 8)) continue;
+      const J = a.pts[1], P = B.pts[1]; const nr = [(J[0] - a.center[0]) / a.r, (J[1] - a.center[1]) / a.r];
+      const dJP = [J[0] - P[0], J[1] - P[1]]; const den = 2 * (nr[0] * dJP[0] + nr[1] * dJP[1]); if (Math.abs(den) < 1e-9) continue;
+      const t = -(dJP[0] ** 2 + dJP[1] ** 2) / den; const c2 = [J[0] + t * nr[0], J[1] + t * nr[1]]; const r2 = Math.abs(t);
+      if (Math.abs(r2 - B.r) > 0.1 * B.r || dist(c2, B.center) > 0.3 * B.r) continue;
+      const nb = arcFrom3pts(J, arcMidNear(c2, r2, arcMid(B)), P); if (nb) { out[(k + 1) % n] = nb; g1++; }
+    }
+  }
+  if (g1 || arcsFromSpline) out.g1 = { g1, arcsFromSpline };
+  return out;
 }
 
 /** Stufe 2: Geometrie aus Bild + OCR-Ergebnis. */
@@ -334,8 +467,11 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
   if (sTxt == null && titleKs.length) sTxt = titleKs[0];
   const fm = phrases.filter(p => p.x > 0.5 * W * u && p.y < 0.3 * H * u).map(p => p.text.trim().match(/^A([0-4])$/)).find(Boolean);
   const sheetFmt = fm ? +fm[1] : null;
-  return { kind: 'raster', thick: thickPrims, thin: [], hidden, center: [], arrows: [], phrases, scale: 1, scale_txt: sTxt, dpi_known: dpiKnown,
+  const _dr = { kind: 'raster', thick: thickPrims, thin: [], hidden, center: [], arrows: [], phrases, scale: 1, scale_txt: sTxt, dpi_known: dpiKnown,
     scale_src: 'vorläufig', msgs, page_w: W * u, page_h: H * u, px_mm: u, hatch, thinCircles, strokes, hatchRegions, sheet_fmt: sheetFmt };
+  // Abfrage dünner Linien (Blatt-mm, y nach oben) für Messungen in recon (z. B. Tangentialkanten von Fasen); nicht aufzählbar -> nicht im postMessage
+  Object.defineProperty(_dr, 'thinAt', { enumerable: false, value: makeThinAt(thin, u, W, H) });
+  return _dr;
 }
 
 export const fmtScale = k => k >= 1 ? `${+k.toPrecision(6)}:1` : `1:${+(1 / k).toPrecision(6)}`;
@@ -579,4 +715,31 @@ function rasterHatchRegions(thick, geo, thickD, tmask, W, H, u, wth, f) {
     if (prims.length) out.push({ prims, lo: [x0 * u, (H - y0 - h) * u], hi: [(x0 + w) * u, (H - y0) * u], area: amm, schraeg_mm: +dens.toFixed(1), n: nDiag });
   }
   return out;
+}
+export const fitCircleFn = I.fitCircle;
+
+/** Feinabgleich des Maßstabs über Maßzahlen (DPI geraten): Abstände zwischen Kreismitten, achsparallelen Kanten und Ansichtsgrenzen
+ *  mit Maßwerten vergleichen; dichtester Verhältnis-Cluster (±0,25 %) mit ≥ 4 Treffern liefert den Korrekturfaktor. */
+export function fineScale(v, vals, s) {
+  const xs = [v.lo[0], v.hi[0]], ys = [v.lo[1], v.hi[1]], ds = [];
+  for (const p of v.prims) {
+    if (p.kind === 'circle') { xs.push(p.center[0]); ys.push(p.center[1]); ds.push(2 * p.r); }
+    else if (p.kind === 'line') { const d = [p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]]; const L = Math.hypot(...d); if (L < 3) continue; if (Math.abs(d[0]) < 0.05) xs.push(p.pts[0][0]); if (Math.abs(d[1]) < 0.05) ys.push(p.pts[0][1]); }
+  }
+  const L = [...ds];
+  for (const A of [xs, ys]) for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) { const d = Math.abs(A[i] - A[j]); if (d > 2) L.push(d); }
+  const vs = [...new Set(vals)].filter(x => x >= 5 && !Number.isInteger(x));   // Nachkommastellen: weniger Zufallstreffer
+  const rs = [];
+  for (const val of vs) { let best = null; for (const l of L) { const r = val / (l / s); if (Math.abs(r - 1) < 0.025 && (!best || Math.abs(r - 1) < Math.abs(best - 1))) best = r; } if (best) rs.push(best); }
+  rs.sort((a, b) => a - b); let bc = null;
+  for (let i = 0; i < rs.length; i++) { const c = rs.filter(r => Math.abs(r - rs[i]) < 0.0025); if (!bc || c.length > bc.length) bc = c; }
+  if (!bc || bc.length < 4) return null;
+  const med = bc[Math.floor(bc.length / 2)];
+  return Math.abs(med - 1) > 0.002 ? { f: med, n: bc.length } : null;
+}
+
+// eigene Funktion (eigener Scope), Bitfeld statt Byte-Maske: hält nur ~W*H/8 Byte fest, nicht die übrigen Masken von finish()
+function makeThinAt(thin, u, W, H) {
+  const bits = new Uint8Array((W * H + 7) >> 3); for (let i = 0; i < thin.length; i++) if (thin[i]) bits[i >> 3] |= 1 << (i & 7);
+  return (x, y) => { const px = Math.round(x / u), py = Math.round(H - y / u); if (px < 0 || py < 0 || px >= W || py >= H) return 0; const i = py * W + px; return (bits[i >> 3] >> (i & 7)) & 1; };
 }

@@ -15,9 +15,9 @@ REF = {'01_flansch.pdf': 257834.1, '02_welle.pdf': 188686.4, '03_halteplatte.pdf
        '06_buchse.pdf': 75953.1, '07_lagerplatte_schnitt.pdf': 166856.3, 'r06_buchse_scan.tif': 75953.1, 'r07_lagerplatte_schnitt_scan.pdf': 166856.3,
        # reale Zeichnung: handmodelliertes Referenzmodell (tests/ref_real.py), siehe README
        'real/xometry_lathe_sample.webp': 19812.2,
-       'real/drehteil_rillen_4zu1.jpg': 243.16, 'real/platte_schraege_1zu2.jpg': 202937.7}
+       'real/drehteil_rillen_4zu1.jpg': 243.16, 'real/platte_schraege_1zu2.jpg': 214747.4}
 TOLP = {'r06_buchse_scan.tif': 5, 'r07_lagerplatte_schnitt_scan.pdf': 5, 'real/xometry_lathe_sample.webp': 3,
-        'real/drehteil_rillen_4zu1.jpg': 5, 'real/platte_schraege_1zu2.jpg': 15}
+        'real/drehteil_rillen_4zu1.jpg': 5, 'real/platte_schraege_1zu2.jpg': 3}
 ALL = list(REF)
 ap = argparse.ArgumentParser(); ap.add_argument('url', nargs='?', default='http://localhost:8777/')
 ap.add_argument('--nur', default=''); ap.add_argument('--beispiele', default='')
