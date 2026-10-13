@@ -211,6 +211,61 @@ export class Graph {
     }
     throw new ReconError('Die Außenkontur einer Ansicht konnte nicht geschlossen verfolgt werden (offene oder überlappende Linien).');
   }
+  /** Alle beschränkten Flächen (Zyklen) des ebenen Kantengraphs: [{loop, poly, area}] */
+  faces() {
+    const outDirs = new Map();
+    this.E.forEach((e, ei) => {
+      if (!outDirs.has(e.u)) outDirs.set(e.u, []); if (!outDirs.has(e.v)) outDirs.set(e.v, []);
+      outDirs.get(e.u).push([ei, false, Graph.dir(e.poly)]);
+      outDirs.get(e.v).push([ei, true, Graph.dir([...e.poly].reverse())]);
+    });
+    const used = new Set(); const cycles = [];
+    for (let ei0 = 0; ei0 < this.E.length; ei0++) for (const rev0 of [false, true]) {
+      if (used.has(ei0 + (rev0 ? 'r' : 'f'))) continue;
+      const path = []; let ei = ei0, rev = rev0, ok = false;
+      for (let it = 0; it < 4 * this.E.length + 10; it++) {
+        const key = ei + (rev ? 'r' : 'f');
+        if (used.has(key)) { ok = ei === ei0 && rev === rev0; break; }
+        used.add(key); path.push([ei, rev]);
+        const e = this.E[ei]; const poly = rev ? [...e.poly].reverse() : e.poly; const cur = rev ? e.u : e.v;
+        const back = Graph.dir([...poly].reverse());
+        let best = null; const od = outDirs.get(cur);
+        for (const [ej, rj, a] of od) {
+          if (ej === ei && od.length > 1) continue;
+          let d = mod(a - back, TAU); if (d < 1e-6) d = TAU;
+          if (best === null || d < best[0]) best = [d, ej, rj];
+        }
+        if (!best) break;
+        ei = best[1]; rev = best[2];
+      }
+      if (!ok) continue;
+      const loop = path.map(([i, r]) => [this.E[i], r]);
+      const poly = []; for (const [e, r] of loop) poly.push(...(r ? [...e.poly].reverse() : e.poly).slice(0, -1));
+      let sa = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; sa += a[0] * b[1] - a[1] * b[0]; }
+      cycles.push({ loop, poly, signed: sa / 2, area: Math.abs(sa / 2) });
+    }
+    // Drehsinn der Außenränder bestimmen: die Regel liefert Außenränder mit festem Vorzeichen
+    const outerSign = Graph.OUTER_SIGN;
+    return cycles.filter(c => Math.sign(c.signed) !== outerSign && c.area > 1e-6);
+  }
+}
+Graph.OUTER_SIGN = 1; // empirisch: Außenränder positiv, Flächen negativ
+export function pointInPoly(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+/** Schnittpunkte einer senkrechten Geraden x=xs mit einem Polygon (y-Werte, sortiert). */
+export function polyCrossY(poly, xs) {
+  const ys = [];
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[0] > xs) !== (b[0] > xs)) ys.push(a[1] + (xs - a[0]) * (b[1] - a[1]) / (b[0] - a[0]));
+  }
+  return ys.sort((x, y) => x - y);
 }
 
 export function loopBbox(loop) {

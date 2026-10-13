@@ -249,7 +249,7 @@ export function associate(dr, ctx) {
       const a2 = anchorByValue(ctx, sp2, raster);
       if (a2) { sp = { ...sp2, hinweis: '„8“ als „Ø“ gelesen (OCR)' }; anc = a2; }
     }
-    dims.push({ ...sp, quelle: raster ? 'OCR-Text' : 'Freitext', anker: anc, gemessen: null });
+    dims.push({ ...sp, quelle: phrases[pi].detail ? `Einzelheit ${phrases[pi].detail}` : (raster ? 'OCR-Text' : 'Freitext'), anker: anc, gemessen: null });
   });
   dims.forEach((d, i) => {
     d.id = `M${i + 1}`; const a = d.anker;

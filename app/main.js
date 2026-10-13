@@ -10,6 +10,9 @@ const BEISPIELE = [
   ['04_winkel.pdf', 'Winkel (Vektor-PDF)'], ['05_stufenblock.pdf', 'Stufenblock (Vektor-PDF)'],
   ['r01_flansch_scan.png', 'Flansch (Scan PNG)'], ['r02_welle_scan.tif', 'Welle (Scan TIFF)'], ['r03_halteplatte_scan.pdf', 'Halteplatte (Scan-PDF)'],
   ['r04_winkel_scan.jpg', 'Winkel (Scan JPG)'], ['r05_stufenblock_scan.tif', 'Stufenblock (Scan TIFF)'],
+  ['06_buchse.pdf', 'Buchse – Schnitt A-A + Einzelheit Z (Vektor-PDF)'], ['07_lagerplatte_schnitt.pdf', 'Lagerplatte – Schnitt A-A (Vektor-PDF)'],
+  ['r06_buchse_scan.tif', 'Buchse – Schnitt + Einzelheit (Scan TIFF)'], ['r07_lagerplatte_schnitt_scan.pdf', 'Lagerplatte – Schnitt (Scan-PDF)'],
+  ['real/xometry_lathe_sample.webp', 'Reale Zeichnung: Drehteil (WEBP, 90 dpi)'],
 ];
 
 const state = { busy: false, result: null, file: null, preview: null, edits: {}, msgs: [] };
@@ -124,7 +127,7 @@ function drawViewBoxes(r) {
   const pv = state.preview; if (!pv || !r.ansichten || !r.page_w) return;
   for (const v of r.ansichten) {
     // Ansichtskoordinaten: mm, y nach oben ab Seitenunterkante
-    const b = document.createElement('div'); b.className = 'box';
+    const b = document.createElement('div'); b.className = 'box' + (v.art && v.art !== 'ansicht' ? ' ' + v.art : '');
     b.style.left = (v.lo[0] / r.page_w * 100) + '%'; b.style.width = ((v.hi[0] - v.lo[0]) / r.page_w * 100) + '%';
     b.style.top = ((r.page_h - v.hi[1]) / r.page_h * 100) + '%'; b.style.height = ((v.hi[1] - v.lo[1]) / r.page_h * 100) + '%';
     if (v.rolle) b.innerHTML = `<span>${esc(v.rolle)}</span>`; el.appendChild(b);
@@ -144,7 +147,7 @@ function zeige(r, name, ms) {
     <tr><td>Datei</td><td>${esc(name)}</td></tr><tr><td>Quelle</td><td>${res.quelle === 'raster' ? 'Rasterbild (OCR)' : 'Vektor-PDF'}</td></tr>
     <tr><td>Strategie</td><td>${esc(res.strategie)}</td></tr><tr><td>Maßstab</td><td>${esc(fmt(res.massstab, 4))}</td></tr>
     <tr><td>Volumen</td><td id="volumen">${fmt(res.volumen_mm3, 1)} mm³</td></tr><tr><td>Abmessungen</td><td>${res.bbox.map(v => fmt(v, 2)).join(' × ')} mm</td></tr>
-    <tr><td>Gültig (BRepCheck)</td><td>${res.gueltig ? 'ja' : 'nein'}</td></tr><tr><td>Merkmale</td><td>${esc((res.merkmale || []).join('; '))}</td></tr>
+    <tr><td>Gültig (BRepCheck)</td><td>${res.gueltig ? 'ja' : 'nein'}</td></tr><tr><td>Merkmale</td><td>${(res.merkmale || []).map(m => esc(typeof m === 'string' ? m : `${m.typ}: ${m.text}`)).join('<br>')}</td></tr>
     <tr><td>Flächen</td><td>${res.flaechen.length}: ${esc(st)}</td></tr><tr><td>Kanten</td><td>${res.kanten.length}: ${esc(ks)}</td></tr>
     <tr><td>Rechenzeit</td><td>${(ms / 1000).toFixed(1)} s</td></tr></table>`;
   $('#pmi').innerHTML = '';

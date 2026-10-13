@@ -44,16 +44,19 @@ function jpegDpi(b) {
 /** Ohne DPI-Angabe: Auflösung raten, bei der das Bild genau ein DIN-A-Blatt (A4…A0) ergibt. */
 function guessDpi(W, H) {
   const L = Math.max(W, H), S = Math.min(W, H);
-  for (const dpi of [300, 200, 400, 150, 600, 250]) for (const [a, b] of [[297, 210], [420, 297], [594, 420], [841, 594], [1189, 841]]) {
+  for (const dpi of [300, 200, 400, 150, 600, 250, 100, 120, 96, 90, 75, 72]) for (const [a, b] of [[297, 210], [420, 297], [594, 420], [841, 594], [1189, 841]]) {
     if (Math.abs(L * 25.4 / dpi / a - 1) < 0.015 && Math.abs(S * 25.4 / dpi / b - 1) < 0.015) return { dpi, fmt: 'A' + [4, 3, 2, 1, 0][[297, 420, 594, 841, 1189].indexOf(a)] };
   }
   return null;
 }
-const realDpi = d => (d && d >= 100 && d <= 2400 ? d : null); // 72/96 dpi sind Standardwerte ohne Aussage
+const realDpi = d => (d && d >= 100 && d <= 2400 ? d : null); // (Format-Schätzung erlaubt dagegen auch 72–120 dpi) // 72/96 dpi sind Standardwerte ohne Aussage
 
 function toGrayFromRGBA(rgba, n) {
   const g = new Uint8Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) { const a = rgba[j + 3]; const l = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8; g[i] = a === 255 ? l : 255 - ((255 - l) * a >> 8); }
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    // deutlich blaue Pixel (Positionsnummern/Ballons, Prüfmarkierungen) gehören nicht zur Zeichnung -> weiß
+    if (rgba[j + 2] > rgba[j] + 35 && rgba[j + 2] > rgba[j + 1] + 15) { g[i] = 255; continue; }
+    const a = rgba[j + 3]; const l = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8; g[i] = a === 255 ? l : 255 - ((255 - l) * a >> 8); }
   return g;
 }
 function canvasGray(src, w, h) {
@@ -178,8 +181,9 @@ export async function readFile(file, base, opts = {}) {
   return { kind: 'raster', gray, W, H, W0, dpi, dpiKnown: !!srcDpi && !guessed, preview: { canvas: prevCanvas, pageW: W * 25.4 / dpi, pageH: H * 25.4 / dpi }, msg };
 }
 function scaleFor(W0, H0, srcDpi, prof) {
-  // Hochskalieren (bis 1,6×) nur bei bekannter, niedriger Auflösung: 200-dpi-Scans werden bei 300 dpi robuster erkannt
-  let s = srcDpi ? Math.min(1.6, prof.dpi / srcDpi) : Math.min(1, prof.dpi / 300);
+  // Hochskalieren nur bei bekannter/erratener, niedriger Auflösung: 200-dpi-Scans werden bei 300 dpi robuster erkannt,
+  // Bildschirmauflösungen (72–120 dpi) brauchen deutlich mehr (bis 4×) für Strichstärken und OCR
+  let s = srcDpi ? Math.min(srcDpi < 150 ? 4 : 1.6, prof.dpi / srcDpi) : Math.min(1, prof.dpi / 300);
   if (W0 * H0 * s * s > prof.maxPx) s = Math.sqrt(prof.maxPx / (W0 * H0));
   return s;
 }

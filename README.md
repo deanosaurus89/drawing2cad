@@ -40,9 +40,18 @@ Die App läuft vollständig im Browser, es gibt kein Backend. Hochgeladene Datei
 - **Beispiele** (`beispiele/`):
   - 5 Vektor-PDFs: Flansch, Welle, Halteplatte, Winkel, Stufenblock.
   - Dieselben 5 Teile als Scans (PNG ohne DPI, TIFF, Scan-PDF, JPG ohne DPI, TIFF).
+  - Schnitt/Einzelheit: `06_buchse.pdf` (Vollschnitt A-A, Einzelheit Z (5:1) mit Freistich), `07_lagerplatte_schnitt.pdf` (Schnitt A-A mit Tasche T12 und Sackbohrung T18), dazu `r06`/`r07` als 200-dpi-Scans. Sollvolumen analytisch: `examples/sollwerte_schnitt.json`.
+  - Reale Zeichnung: `real/xometry_lathe_sample.webp` (1492×1054 px ≈ 90 dpi, A3, 2:1, Drittwinkelprojektion, Schnitt A-A 1:1, Einzelheit C 4:1, blaue Prüf-Ballons). Referenz: handmodelliertes Teil `tests/ref_real.py`.
+- **Schnitte und Einzelheiten:**
+  - Schraffur (dünne 45°-Linien zwischen Körperkanten), Schnittverlauf (kurze breite Striche mit Buchstaben), Schnitttitel „A-A“ und Ansichtsmaßstab („A-A 1:1“).
+  - Drehteile: die schraffierten Flächen der Schnittansicht werden als Rotationsprofil verwendet (Bohrungen, Einstiche, Freistiche, Innenfasen). Eine eigenständige Vollschnitt-Ansicht in anderem Maßstab wird über ihren Titel-Maßstab angeglichen.
+  - Prismatische Teile: Tiefen von Taschen und Sackbohrungen kommen aus der Schnittfläche.
+  - Einzelheiten: Detailkreis + Buchstabe und Titel „Z (5:1)“; die vergrößerte Geometrie ersetzt die Kontur im Detailkreis der Elternansicht, Maße daraus erhalten die Quelle „Einzelheit Z“.
+  - Vorschau: Schnitte rot schraffiert, Einzelheiten und Detailkreise violett, Schnittverlauf rot gestrichelt.
+- **Niedrig aufgelöste Bilder / WEBP:** WEBP wird über den Browser-Decoder gelesen. Ohne DPI-Angabe wird auch 72–120 dpi über das DIN-Format geschätzt und bis 4× hochskaliert. Auf Normblättern wird nur zwischen Normmaßstäben gewählt (Ansichtstitel > Maßzahlen). Deutlich blaue Elemente (Ballons/Prüfnummern) werden vor der Erkennung entfernt. Lochkreise werden bei Anzahlangabe („x4“) vervollständigt, wenn eine Bohrung verdeckt ist (Meldung im Merkmal).
 - **Lokal starten:** `python -m http.server 8000` im Repo-Ordner ausführen, dann `http://localhost:8000/` öffnen. ES-Module und WASM funktionieren nicht über `file://`.
 - **Test:** `python tests/test_web.py [URL]`. Der Test läuft in Headless Chrome am Desktop und als iPhone 390×844 mit Touch. Er prüft:
-  - alle 10 Beispiele, mit Volumenvergleich gegen das Python-Backend;
+  - alle 15 Beispiele, mit Volumenvergleich gegen das Python-Backend bzw. analytische Sollwerte (Schnitt-Beispiele) bzw. das Handmodell (reale Zeichnung, Toleranz 3 %);
   - den STEP-Reimport mit CadQuery;
   - die drei STEP-Schemata;
   - den ViewCube (Flächen, Kanten, Ecken);
@@ -62,6 +71,9 @@ Die App läuft vollständig im Browser, es gibt kein Backend. Hochgeladene Datei
 - OCR übersieht gelegentlich Maßtexte. Bei Scans gibt es deshalb weniger PMI als bei Vektor-PDFs.
 - Beim ersten Start werden rund 23 MB WASM geladen; danach liegen sie im Browser-Cache. Für OCR kommen etwa 15 MB Sprachdaten vom CDN dazu, also ist dafür Internet nötig.
 - Sehr große Scans auf älteren Smartphones können am Speicher scheitern.
+- Schnitte im Rasterbild: es wird nur der äußere Umriss vektorisiert, Innenkanten der Schnittfläche nicht. Durchgangsbohrungen kommen dann aus der Stirnansicht (nur wenn der Schnitt innerhalb keine Schraffur zeigt); Sackbohrungen, Gewinde, Einstiche und Freistiche aus Raster-Schnitten/-Einzelheiten werden nicht modelliert (Meldung).
+- Reale, niedrig aufgelöste Zeichnungen: OCR liest viele Maße falsch (Komma fehlt „219“ statt 21,9, „Ø“ als 8/D). GD&T-Rahmen und Oberflächenzeichen werden nicht als PMI übernommen. Projektionsmethode wird nicht aus dem Symbol bestimmt; Stirnansicht links oder rechts wird gleichermaßen über die Lage zugeordnet (für Drehteile gleichwertig).
+- Python-Version: Schnitte/Einzelheiten sind dort nicht umgesetzt.
 
 ## Python-Version (`python/`)
 Die ursprüngliche Server-Version (FastAPI, CadQuery, OpenCV, Tesseract) hat zusätzlich GLB-Export und STEP AP242 mit semantischer PMI.

@@ -10,7 +10,12 @@ SHOTS = ROOT / 'screenshots'; SHOTS.mkdir(exist_ok=True)
 OUT = pathlib.Path('/tmp/d2c_web'); OUT.mkdir(exist_ok=True)
 # Python-Referenzvolumen (Backend, mm³); Raster: Python-Rasterpfad
 REF = {'01_flansch.pdf': 257834.1, '02_welle.pdf': 188686.4, '03_halteplatte.pdf': 144027.0, '04_winkel.pdf': 116703.8, '05_stufenblock.pdf': 364051.9,
-       'r01_flansch_scan.png': 259851, 'r02_welle_scan.tif': 188686.4, 'r03_halteplatte_scan.pdf': 144144, 'r04_winkel_scan.jpg': 116571, 'r05_stufenblock_scan.tif': 365693}
+       'r01_flansch_scan.png': 259851, 'r02_welle_scan.tif': 188686.4, 'r03_halteplatte_scan.pdf': 144144, 'r04_winkel_scan.jpg': 116571, 'r05_stufenblock_scan.tif': 365693,
+       # Schnitt/Einzelheit: analytische Sollwerte (examples/sollwerte_schnitt.json)
+       '06_buchse.pdf': 75953.1, '07_lagerplatte_schnitt.pdf': 166856.3, 'r06_buchse_scan.tif': 75953.1, 'r07_lagerplatte_schnitt_scan.pdf': 166856.3,
+       # reale Zeichnung: handmodelliertes Referenzmodell (tests/ref_real.py), siehe README
+       'real/xometry_lathe_sample.webp': 19812.2}
+TOLP = {'r06_buchse_scan.tif': 5, 'r07_lagerplatte_schnitt_scan.pdf': 5, 'real/xometry_lathe_sample.webp': 3}
 ALL = list(REF)
 ap = argparse.ArgumentParser(); ap.add_argument('url', nargs='?', default='http://localhost:8777/')
 ap.add_argument('--nur', default=''); ap.add_argument('--beispiele', default='')
@@ -79,17 +84,17 @@ def run(profile):
             info = pg.evaluate('window.__letztes')
             if profile == 'mobil': pg.click('#tabs button[data-tab="3d"]'); pg.wait_for_timeout(300)
             pg.wait_for_timeout(500)
-            pg.screenshot(path=str(SHOTS / f'web_{profile}_{n.split(".")[0]}.png'))
+            pg.screenshot(path=str(SHOTS / f'web_{profile}_{n.split(".")[0].replace("/", "_")}.png'))
             # STEP-Export
             if profile == 'mobil': pg.click('#tabs button[data-tab="masse"]')
             with pg.expect_download(timeout=120000) as d:
                 pg.click('#x-step')
-            fp = OUT / f'{profile}_{n}.step'; d.value.save_as(str(fp))
+            fp = OUT / f'{profile}_{n.replace("/", "_")}.step'; d.value.save_as(str(fp))
             head = fp.read_text(errors='ignore')[:2000]
             schema = 'AP214' if 'AUTOMOTIVE_DESIGN' in head else ('AP242' if 'AP242' in head else ('AP203' if 'CONFIG_CONTROL' in head else '?'))
             sv, sok, snf = step_check(str(fp))
             ref = REF[n]; dev = (info['volumen'] - ref) / ref * 100
-            ok = abs(dev) < 2 and sok and abs(sv - info['volumen']) / info['volumen'] < 1e-3 and info['gueltig']
+            ok = abs(dev) < TOLP.get(n, 2) and sok and abs(sv - info['volumen']) / info['volumen'] < 1e-3 and info['gueltig']
             print(f'[{profile}] {n}: {dt:.1f}s V={info["volumen"]:.1f} ref={ref} ({dev:+.2f}%) Flächen={info["flaechen"]} PMI={info["pmi"]} STEP {schema} reimport V={sv} gültig={sok}', flush=True)
             results.append({'profil': profile, 'test': n, 'ok': ok, 'zeit_s': round(dt, 1), 'volumen': info['volumen'], 'ref': ref, 'abw_proz': round(dev, 2), 'step_schema': schema, 'step_volumen': sv, 'step_gueltig': sok, 'pmi': info['pmi']})
             if profile == 'mobil': pg.click('#tabs button[data-tab="3d"]')

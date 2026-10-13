@@ -1,4 +1,5 @@
 // Vektor-PDF (über pdf.js-Operatorliste) -> Zeichnungs-Zwischenformat (Port von backend/vector_in.py).
+import { vectorHatch } from './sections.js';
 import { prim, bezierAsArc, bbox, dist, ReconError, TAU } from './geom.js';
 
 export const PT = 25.4 / 72;
@@ -149,5 +150,7 @@ export function readPdfVector(ex, tcRes, pageW, pageH) {
   const m = full.match(SCALE_RE);
   if (m) { scale = parseFloat(m[1].replace(',', '.')) / parseFloat(m[2].replace(',', '.')); src = 'Schriftfeld'; }
   else msgs.push('Kein Maßstab im Schriftfeld gefunden – nehme 1:1 an.');
-  return { kind: 'vektor', thick, thin, hidden, center, arrows, phrases, scale, scale_src: src, msgs, page_w: pw, page_h: ph };
+  const hatch = vectorHatch(thin, thick);
+  const thinCircles = thin.filter(p => p.kind === 'circle');
+  return { kind: 'vektor', thick, thin, hidden, center, arrows, phrases, scale, scale_src: src, msgs, page_w: pw, page_h: ph, hatch, thinCircles, strokes: [] };
 }

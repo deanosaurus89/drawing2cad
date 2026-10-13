@@ -374,6 +374,186 @@ def raster_versions():
         print("geschrieben:", out)
 
 
+# ---------------------------------------------------------------- Schnitte und Einzelheiten
+def _poly_arc(c, r, a0, a1, n=12):
+    return [(c[0] + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)), c[1] + r * math.sin(math.radians(a0 + (a1 - a0) * i / n))) for i in range(n + 1)]
+
+
+def hatch_segments(poly, spacing=2.5, ang=45):
+    """Schraffur (schmale Volllinien unter ang°) innerhalb eines geschlossenen Polygons."""
+    t = math.radians(ang); d = (math.cos(t), math.sin(t)); nrm = (-d[1], d[0])
+    proj = [p[0] * nrm[0] + p[1] * nrm[1] for p in poly]
+    out = []; c = math.floor(min(proj) / spacing) * spacing + spacing / 2
+    while c < max(proj):
+        xs = []
+        for (a, b) in zip(poly, poly[1:] + poly[:1]):
+            pa = a[0] * nrm[0] + a[1] * nrm[1] - c; pb = b[0] * nrm[0] + b[1] * nrm[1] - c
+            if (pa < 0) != (pb < 0):
+                k = pa / (pa - pb); q = (a[0] + k * (b[0] - a[0]), a[1] + k * (b[1] - a[1]))
+                xs.append(q)
+        xs.sort(key=lambda q: q[0] * d[0] + q[1] * d[1])
+        for i in range(0, len(xs) - 1, 2):
+            out.append((xs[i], xs[i + 1]))
+        c += spacing
+    return out
+
+
+def clip_seg_circle(a, b, c, r):
+    """Teil der Strecke a-b innerhalb des Kreises (c, r) oder None."""
+    dx, dy = b[0] - a[0], b[1] - a[1]; fx, fy = a[0] - c[0], a[1] - c[1]
+    A = dx * dx + dy * dy; B = 2 * (fx * dx + fy * dy); C = fx * fx + fy * fy - r * r
+    disc = B * B - 4 * A * C
+    if A < 1e-12 or disc <= 0: return None
+    t0 = (-B - math.sqrt(disc)) / (2 * A); t1 = (-B + math.sqrt(disc)) / (2 * A)
+    t0, t1 = max(0, t0), min(1, t1)
+    if t1 - t0 < 1e-6: return None
+    return ((a[0] + t0 * dx, a[1] + t0 * dy), (a[0] + t1 * dx, a[1] + t1 * dy))
+
+
+def cut_marker(d, p, outward, view_dir, letter):
+    """Schnittverlauf-Ende: breiter Strich (7 mm), Pfeil in Blickrichtung, Kennbuchstabe."""
+    q = (p[0] + outward[0] * 7, p[1] + outward[1] * 7)
+    d.line([p, q], "thick")
+    tip = (q[0] + view_dir[0] * 7, q[1] + view_dir[1] * 7)
+    d.line([q, tip], "thin"); d.arrow(tip, view_dir)
+    d.text(tip[0] + view_dir[0] * 2 - 1.5, tip[1] + view_dir[1] * 2 - 1.5, letter, 5)
+
+
+# Exaktes Halbprofil der Buchse (x axial, r radial), oben, gegen den Uhrzeigersinn
+BUCHSE_FREISTICH = [(40, 20.2)] + _poly_arc((40.6, 20.2), 0.6, 180, 270, 6)[1:] + [(42.5 - 0.4 / math.tan(math.radians(30)), 19.6), (42.5, 20)]
+
+
+def bushing():
+    d = Drawing("Buchse mit Einstich und Freistich", "D2C-006", "11SMnPb30")
+    d.frame_and_title()
+    x0, yc = 60, 180
+    # Halbschnitt-Kontur ohne Freistich (Hauptansicht 1:1 vereinfacht, Freistich in Einzelheit Z)
+    wall = [(0, 13), (0, 24), (1, 25), (40, 25), (40, 20), (59, 20), (60, 19), (60, 12), (32.5, 12), (32.5, 13.5), (30, 13.5), (30, 12), (1, 12)]
+    for sgn in (1, -1):
+        P = [(x0 + x, yc + sgn * r) for x, r in wall]
+        d.line(P + [P[0]])
+        for a, b in hatch_segments(P, 2.5, 45 if sgn > 0 else 45):
+            d.line([a, b], "thin")
+    # sichtbare Kanten hinter der Schnittebene (in der Bohrung)
+    for x in (1, 30, 32.5):
+        d.line([(x0 + x, yc - 12), (x0 + x, yc + 12)])
+    d.line([(x0 - 6, yc), (x0 + 66, yc)], "center")
+    d.text(x0 + 24, yc + 34, "A-A", 5)
+    # Einzelheit Z: Kreis + Buchstabe
+    d.circle((x0 + 40, yc + 20), 6, "thin"); d.text(x0 + 45, yc + 27, "Z", 5)
+    # Stirnansicht von links (rechts daneben) mit Schnittverlauf
+    sx = 210
+    for r in (25, 24, 13, 12): d.circle((sx, yc), r)
+    d.line([(sx - 30, yc), (sx + 30, yc)], "center"); d.line([(sx, yc - 30), (sx, yc + 30)], "center")
+    cut_marker(d, (sx, yc + 32), (0, 1), (-1, 0), "A"); cut_marker(d, (sx, yc - 32), (0, -1), (-1, 0), "A")
+    # Bemaßung Schnitt
+    d.dim_h(x0, x0 + 60, yc - 24, yc - 19, yc - 45, "60")
+    d.dim_h(x0, x0 + 40, yc - 25, yc - 25, yc - 35, "40")
+    d.dim_v(yc - 25, yc + 25, x0, x0, x0 - 12, "Ø50")
+    d.dim_v(yc - 20, yc + 20, x0 + 60, x0 + 60, x0 + 72, "Ø40")
+    xb = x0 + 50; d.line([(xb, yc - 12), (xb, yc + 12)], "thin"); d.arrow((xb, yc - 12), (0, -1)); d.arrow((xb, yc + 12), (0, 1))
+    d.text(xb - 1.2, yc - 6, "Ø24", rot=90)
+    xg = x0 + 31.25; d.line([(xg, yc - 13.5), (xg, yc + 13.5)], "thin"); d.arrow((xg, yc - 13.5), (0, -1)); d.arrow((xg, yc + 13.5), (0, 1))
+    d.text(xg - 1.2, yc - 8, "Ø27", rot=90)
+    d.text(x0, yc - 58, "Fasen 1x45°, Einstich 2,5 breit bei 30")
+    # Einzelheit Z (5:1): Kreisbegrenzung, exakte Geometrie
+    cz, R5, k = (300, 100), 30, 5
+    D = lambda x, r: (cz[0] + (x - 40) * k, cz[1] + (r - 20) * k)
+    exact = [(0, 13), (0, 24), (1, 25), (40, 25)] + BUCHSE_FREISTICH + [(59, 20), (60, 19), (60, 12), (32.5, 12), (32.5, 13.5), (30, 13.5), (30, 12), (1, 12)]
+    EP = [D(x, r) for x, r in exact]
+    arc_idx = set(range(exact.index((40, 20.2)), exact.index((40, 20.2)) + 6))  # Polygonzug des Bogens R0,6
+    for i, (a, b) in enumerate(zip(EP, EP[1:] + EP[:1])):
+        if i in arc_idx: continue
+        seg = clip_seg_circle(a, b, cz, R5)
+        if seg: d.line(list(seg))
+    d.arc(D(40.6, 20.2), 0.6 * k, 180, 270)
+    for a, b in hatch_segments(EP, 2.5, 45):
+        seg = clip_seg_circle(a, b, cz, R5 - 0.01)
+        if seg: d.line(list(seg), "thin")
+    d.circle(cz, R5, "thin")
+    d.text(cz[0] - 12, cz[1] + 36, "Z (5:1)", 5)
+    d.dim_h(D(40, 0)[0], D(42.5, 0)[0], D(0, 19.6)[1], D(0, 20)[1], cz[1] - 18, "2,5")
+    d.dim_v(D(0, 19.6)[1], D(0, 20)[1], D(42.5, 0)[0], D(42.5, 0)[0], cz[0] + 22, "0,4")
+    a45 = (D(40.6, 0)[0] - 3 * math.cos(math.radians(45)), D(0, 20.2)[1] - 3 * math.sin(math.radians(45)))
+    d.leader(a45, (cz[0] - 18, cz[1] - 8), "R0,6")
+    d.text(D(42.5, 0)[0] + 2, cz[1] + 3, "30°")
+    d.save("examples/06_buchse.pdf")
+
+
+def section_block():
+    d = Drawing("Lagerplatte mit Tasche (Schnitt)", "D2C-007", "S235JR")
+    d.frame_and_title()
+    fx, fy = 60, 180
+    sec = [(0, 0), (100, 0), (100, 30), (84, 30), (84, 12), (72, 12), (72, 30), (55, 30), (55, 18), (15, 18), (15, 30), (0, 30)]
+    P = [(fx + x, fy + z) for x, z in sec]
+    d.line(P + [P[0]])
+    for a, b in hatch_segments(P, 3, 45): d.line([a, b], "thin")
+    d.line([(fx + 78, fy + 8), (fx + 78, fy + 34)], "center")
+    d.text(fx + 44, fy + 40, "A-A", 5)
+    tx, ty = 60, 70
+    d.line([(tx, ty), (tx + 100, ty), (tx + 100, ty + 60), (tx, ty + 60), (tx, ty)])
+    d.line([(tx + 15, ty + 20), (tx + 55, ty + 20), (tx + 55, ty + 40), (tx + 15, ty + 40), (tx + 15, ty + 20)])
+    for (x, y, r) in ((78, 30, 6), (20, 10, 4)):
+        d.circle((tx + x, ty + y), r)
+        d.line([(tx + x - r - 3, ty + y), (tx + x + r + 3, ty + y)], "center"); d.line([(tx + x, ty + y - r - 3), (tx + x, ty + y + r + 3)], "center")
+    d.line([(tx - 6, ty + 30), (tx + 106, ty + 30)], "center")
+    cut_marker(d, (tx - 8, ty + 30), (-1, 0), (0, 1), "A"); cut_marker(d, (tx + 108, ty + 30), (1, 0), (0, 1), "A")
+    # Bemaßung
+    d.dim_h(tx, tx + 100, ty, ty, ty - 15, "100")
+    d.dim_v(ty, ty + 60, tx, tx, tx - 22, "60")
+    d.dim_h(tx, tx + 15, ty + 20, ty + 20, ty - 6, "15")
+    d.dim_v(ty, ty + 20, tx + 100, tx + 100, tx + 112, "20")
+    d.dim_h(tx, tx + 78, ty, ty, ty - 24, "78")
+    d.leader((tx + 15, ty + 40), (tx + 8, ty + 50), "Tasche 40x20")
+    d.leader((tx + 78 + 4.3, ty + 30 + 4.3), (tx + 90, ty + 46), "Ø12")
+    d.leader((tx + 20 + 2.9, ty + 10 + 2.9), (tx + 30, ty + 2), "Ø8")
+    d.dim_v(fy, fy + 30, fx, fx, fx - 12, "30")
+    d.line([(fx + 16.5, fy + 30), (fx + 37, fy + 30)], "thin")
+    d.line([(fx + 35, fy + 18), (fx + 35, fy + 30)], "thin"); d.arrow((fx + 35, fy + 18), (0, -1)); d.arrow((fx + 35, fy + 30), (0, 1))
+    d.text(fx + 33.8, fy + 21, "12", rot=90)
+    d.dim_v(fy + 12, fy + 30, fx + 100, fx + 84, fx + 112, "18")
+    d.save("examples/07_lagerplatte_schnitt.pdf")
+
+
+def expected_values():
+    """Analytische Sollwerte (exakte Geometrie) für die Schnitt-Beispiele."""
+    import json
+    # Buchse: Pappus über exaktes Halbprofil (Polygon + Bogen-Approximation fein)
+    exact = [(0, 13), (0, 24), (1, 25), (40, 25)] + [(40, 20.2)] + _poly_arc((40.6, 20.2), 0.6, 180, 270, 20000)[1:] + \
+            [(42.5 - 0.4 / math.tan(math.radians(30)), 19.6), (42.5, 20), (59, 20), (60, 19), (60, 12), (32.5, 12), (32.5, 13.5), (30, 13.5), (30, 12), (1, 12)]
+    A = 0; Mr = 0
+    for (x1, r1), (x2, r2) in zip(exact, exact[1:] + exact[:1]):
+        cr = x1 * r2 - x2 * r1; A += cr / 2; Mr += (r1 + r2) * cr / 6
+    v_b = abs(2 * math.pi * Mr)
+    v_p = 100 * 60 * 30 - 40 * 20 * 12 - math.pi * 36 * 18 - math.pi * 16 * 30
+    out = {"06_buchse": round(v_b, 1), "07_lagerplatte_schnitt": round(v_p, 1)}
+    json.dump(out, open("examples/sollwerte_schnitt.json", "w"), indent=1); print(out)
+
+
+def scans_200(names):
+    """200-dpi-Scans mit 4 Graustufen (wie die übrigen Beispiel-Scans)."""
+    import numpy as np, cv2
+    from PIL import Image
+    rng = np.random.default_rng(7)
+    for name, out, fmt in names:
+        pix = pymupdf.open(f"examples/{name}.pdf")[0].get_pixmap(dpi=200, colorspace=pymupdf.csGRAY)
+        img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width).astype(np.float32)
+        img = cv2.GaussianBlur(img, (3, 3), 0.7) * 0.92 + 12 + rng.normal(0, 9, img.shape)
+        q = (np.clip(np.round(np.clip(img, 0, 255) / 85), 0, 3) * 85).astype(np.uint8)
+        if fmt == "tif":
+            Image.fromarray(q).save(out, dpi=(200, 200), compression="tiff_lzw")
+        else:
+            png = cv2.imencode(".png", q)[1].tobytes()
+            doc = pymupdf.open(); pg = doc.new_page(width=W * MM, height=H * MM); pg.insert_image(pg.rect, stream=png); doc.save(out, deflate=True)
+        print("geschrieben:", out)
+
+
 if __name__ == "__main__":
     import os
-    flange(); shaft(); bracket(); angle_bracket(); stepped_block(); raster_versions()
+    import sys
+    if "--schnitte" in sys.argv:
+        bushing(); section_block(); expected_values()
+        scans_200([("06_buchse", "beispiele/r06_buchse_scan.tif", "tif"), ("07_lagerplatte_schnitt", "beispiele/r07_lagerplatte_schnitt_scan.pdf", "pdf")])
+    else:
+        flange(); shaft(); bracket(); angle_bracket(); stepped_block(); raster_versions()
+        bushing(); section_block(); expected_values()

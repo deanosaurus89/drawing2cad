@@ -9,6 +9,7 @@ export function normOcr(t) {
   t = t.replace(/(?<![\p{L}\p{N}_])[@©®⌀¢](?=\d)/gu, 'Ø');
   t = t.replace(/(?<![\p{L}\p{N}_,.])[Oo](?=\d)/gu, 'Ø');
   t = t.replace(/(?<![\p{L}\p{N}_,.])0(?=[1-9]\d)/gu, 'Ø');
+  t = t.replace(/^D(?=\d)/, 'Ø');
   return t.replace(/—/g, '-').replace(/–/g, '-');
 }
 
@@ -48,9 +49,11 @@ export function phrasesFromOcr(passes, u, W, H) {
       }
       if (!g.length) continue;
       g.sort((a, b) => a[0] - b[0]);
-      const text = normOcr(g.map(z => z[1]).join(' '));
+      let text = normOcr(g.map(z => z[1]).join(' '));
       const X0 = Math.min(...g.map(z => z[2][0])), Y0 = Math.min(...g.map(z => z[2][1])), X1 = Math.max(...g.map(z => z[2][2])), Y1 = Math.max(...g.map(z => z[2][3]));
       if (rot !== 0 && !/\d/.test(text)) continue;
+      // senkrecht geschriebene Durchmesser: OCR liest „Ø“ oft als „8“ (Ø10 -> 810, Ø8 -> 88)
+      if (rot !== 0 && /^8\d{1,2}$/.test(text)) { text = 'Ø' + text.slice(1); }
       const ph = { text, lo: [X0 * u, (H - Y1) * u], hi: [X1 * u, (H - Y0) * u], x: (X0 + X1) / 2 * u, y: (H - (Y0 + Y1) / 2) * u, vertikal: rot !== 0 };
       if (rot !== 0 && phrases.some(p => Math.abs(p.x - ph.x) < 3 && Math.abs(p.y - ph.y) < 3)) continue;
       phrases.push(ph);
@@ -108,7 +111,7 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
   if (n < 8) return [];
   {
     const [c, r, rms] = I.fitCircle(P);
-    if (rms < Math.max(0.06, 0.012 * r) && r > 0.5) {
+    if (rms < Math.max(0.06, (r < 5 ? 0.035 : 0.012) * r) && r > 0.5) {
       let tot = 0, prev = Math.atan2(P[0][1] - c[1], P[0][0] - c[0]);
       for (let i = 1; i < n; i++) { const a = Math.atan2(P[i][1] - c[1], P[i][0] - c[0]); let d = a - prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; tot += d; prev = a; }
       if (Math.abs(tot) > 1.9 * Math.PI) return [prim('circle', { center: c, r })];
@@ -219,7 +222,7 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
   const geo = new Uint8Array(W * H); for (let i = 0; i < geo.length; i++) geo[i] = ink[i] && !(tmask[i] && !strong[i]) ? 1 : 0;
   {
     const cc = I.components(geo, W, H, 8);
-    for (let i = 0; i < geo.length; i++) { const l = cc.lab[i]; if (l && (cc.stats[l][2] > 0.55 * W || cc.stats[l][3] > 0.55 * H)) geo[i] = 0; }
+    for (let i = 0; i < geo.length; i++) { const l = cc.lab[i]; if (l && ((cc.stats[l][2] > 0.8 * W && cc.stats[l][3] > 0.6 * H) || cc.stats[l][2] > 0.95 * W || cc.stats[l][3] > 0.95 * H)) geo[i] = 0; }
   }
   const D = I.edt2(geo, W, H, 0); const sk = I.skeleton(geo, W, H);
   const widths = []; for (let i = 0; i < geo.length; i++) if (sk[i]) { const w = 2 * Math.sqrt(D[i]) - 1; if (w > 0.5) widths.push(w); }
@@ -229,13 +232,16 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
   const thr = (c1 + c2) / 2;
   msgs.push(`Strichstärken: schmal ≈ ${(c1 * u).toFixed(2)} mm, breit ≈ ${(c2 * u).toFixed(2)} mm (Schwelle ${(thr * u).toFixed(2)} mm)`);
   let thick = I.open(geo, W, H, thr);
-  const blobs = I.open(geo, W, H, 1.15 / u); const blobsD = I.dilate(blobs, W, H, 0.7 / u);
+  const blobs = I.open(geo, W, H, 1.15 / u);
+  { const bc = I.components(blobs, W, H, 8); for (let i = 0; i < blobs.length; i++) { const l = bc.lab[i]; if (l && Math.max(bc.stats[l][2], bc.stats[l][3]) * u > 4) blobs[i] = 0; } }
+  const blobsD = I.dilate(blobs, W, H, 0.7 / u);
   thick = I.close(thick, W, H, 2 * f);
   {
     const cc = I.components(thick, W, H, 8);
     for (let i = 0; i < thick.length; i++) { const l = cc.lab[i]; if (l && Math.max(cc.stats[l][2], cc.stats[l][3]) * u < 4.5) thick[i] = 0; }
   }
   const wth = c2;
+  if (globalThis.DBG) globalThis.DBGMASK = { thick, geo, ink, W, H, c1, c2 };
   const thickD = I.dilate(thick, W, H, wth * 0.8);
   const thin = new Uint8Array(W * H); for (let i = 0; i < thin.length; i++) thin[i] = geo[i] && !thickD[i] ? 1 : 0;
   log('Strichlinien (verdeckte Kanten) …');
@@ -255,7 +261,8 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
   for (const g of groups.values()) {
     const x0 = Math.min(...g.map(i => st[i][0])), y0 = Math.min(...g.map(i => st[i][1]));
     const x1 = Math.max(...g.map(i => st[i][0] + st[i][2])), y1 = Math.max(...g.map(i => st[i][1] + st[i][3]));
-    if (Math.max(x1 - x0, y1 - y0) * u < 8) continue;
+    // kleine Gruppen nur, wenn annähernd rund (kleine Bohrungen in Stirnansichten)
+    if (Math.max(x1 - x0, y1 - y0) * u < 8 && !(Math.min(x1 - x0, y1 - y0) * u >= 2.5 && Math.abs((x1 - x0) / (y1 - y0) - 1) < 0.15)) continue;
     const main = g.reduce((a, b) => st[b][2] * st[b][3] > st[a][2] * st[a][3] ? b : a);
     for (const i of g) {
       const [bx0, by0, bw, bh] = st[i]; const pd = Math.round(wth) + 4;
@@ -282,14 +289,71 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
       thickPrims.push(...fitContour(cnt.map(([x, y]) => [x + ox, y + oy]), u, H, 0.8 * Math.max(0.6, f)));
     }
   }
+  log('Schraffur, Detailkreise, Schnittverlauf …');
+  const { hatch, thinCircles, strokes } = rasterSectionMarks(thin, thick, W, H, u, wth);
   const full = phrases.map(p => p.text).join(' ');
   const m = full.match(SCALE_RE);
   const sTxt = m ? parseFloat(m[1].replace(',', '.')) / parseFloat(m[2].replace(',', '.')) : null;
   return { kind: 'raster', thick: thickPrims, thin: [], hidden, center: [], arrows: [], phrases, scale: 1, scale_txt: sTxt, dpi_known: dpiKnown,
-    scale_src: 'vorläufig', msgs, page_w: W * u, page_h: H * u, px_mm: u };
+    scale_src: 'vorläufig', msgs, page_w: W * u, page_h: H * u, px_mm: u, hatch, thinCircles, strokes };
 }
 
 export const fmtScale = k => k >= 1 ? `${+k.toPrecision(6)}:1` : `1:${+(1 / k).toPrecision(6)}`;
+
+const STD = [1, 2, 2.5, 4, 5, 10, 20, 0.5, 0.4, 0.2, 0.1, 0.05];
+const viewLens = v => {
+  const L = [v.size[0], v.size[1]];
+  for (const p of v.prims) {
+    if (p.kind === 'circle') L.push(2 * p.r);
+    else if (p.kind === 'line') { const d = [p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]]; if (Math.min(Math.abs(d[0]), Math.abs(d[1])) < 0.05) L.push(Math.hypot(...d)); }
+  }
+  return L.filter(x => x > 3);
+};
+/** Ist das Blatt ein Normformat (A0–A4, hoch/quer)? Dann sind Blatt-mm verlässlich und nur Normmaßstäbe kommen in Frage. */
+export function isStdSheet(w, h) {
+  const F = [[1189, 841], [841, 594], [594, 420], [420, 297], [297, 210]];
+  return F.some(([a, b]) => (Math.abs(w / a - 1) < 0.03 && Math.abs(h / b - 1) < 0.03) || (Math.abs(w / b - 1) < 0.03 && Math.abs(h / a - 1) < 0.03));
+}
+/** Maßstab je Ansicht (Normmaßstäbe, Normblatt): Rückgabe Array k je Ansicht oder null. */
+export function perViewScales(dr, views, values) {
+  if (!isStdSheet(dr.page_w, dr.page_h)) return null;
+  const vals = [...new Set(values.flatMap(v => Number.isInteger(v) && v >= 100 && v < 1000 ? [v, v / 10] : [v]).filter(v => v >= 3))];
+  const sup = (L, k) => vals.filter(v => L.some(l => Math.abs(l / (v * k) - 1) < 0.015)).reduce((a, v) => a + Math.sqrt(v), 0);
+  const big = views.reduce((a, b, i) => b.size[0] * b.size[1] > views[a].size[0] * views[a].size[1] ? i : a, 0);
+  const all = views.flatMap(viewLens);
+  // 1) Ansichtstitel mit Maßstab („A-A 1:1“, „Z (5:1)“) direkt über/unter einer Ansicht
+  const kt = views.map(() => null);
+  for (const ph of dr.phrases || []) {
+    const m = ph.text.match(/(?:^|\s|\()(\d+(?:[.,]\d+)?)\s*:\s*(\d+(?:[.,]\d+)?)\)?\s*$/); if (!m) continue;
+    const k = parseFloat(m[1].replace(',', '.')) / parseFloat(m[2].replace(',', '.'));
+    if (!STD.some(q => Math.abs(q / k - 1) < 1e-6)) continue;
+    let bi = -1, bd = 18;
+    views.forEach((v, i) => {
+      if (Math.max(...v.size) < 15 || ph.x < v.lo[0] - 10 || ph.x > v.hi[0] + 10) return;
+      const d = ph.y > v.hi[1] ? ph.y - v.hi[1] : (ph.y < v.lo[1] ? v.lo[1] - ph.y : 99);
+      if (d < bd) { bd = d; bi = i; }
+    });
+    if (bi >= 0) kt[bi] = k;
+  }
+  // 2) über Größenverhältnis auf ähnliche Ansichten übertragen (gleiche Ansicht in anderem Maßstab)
+  const kp = kt.slice();
+  views.forEach((v, i) => {
+    if (kp[i] != null || Math.max(...v.size) < 25) return;
+    for (let j = 0; j < views.length; j++) if (kt[j] != null) {
+      const r0 = v.size[0] / views[j].size[0], r1 = v.size[1] / views[j].size[1], k = kt[j] * (r0 + r1) / 2;
+      if (Math.abs(r0 / r1 - 1) < 0.03 && v.prims.length >= 0.33 * views[j].prims.length && v.prims.length <= 3 * views[j].prims.length) { const q = STD.find(q => Math.abs(q / k - 1) < 0.03); if (q) kp[i] = q; }
+    }
+  });
+  let kM = null, bs = 1;
+  for (const k of STD) { const s = sup(viewLens(views[big]), k) * 2 + sup(all, k); if (s > bs) { bs = s; kM = k; } }
+  if (kp[big] != null) kM = kp[big];
+  if (kM == null) return null;
+  return views.map((v, i) => {
+    if (kp[i] != null) return kp[i];
+    // eigener Maßstab nur mit Ansichtstitel (oder Größenvergleich dazu) – reine Maßzahl-Abstimmung je Ansicht ist zu unsicher
+    return kM;
+  });
+}
 
 export function voteScale(dr, views, values) {
   let L = [];
@@ -301,7 +365,8 @@ export function voteScale(dr, views, values) {
     }
   }
   L = L.filter(x => x > 3);
-  const vals = [...new Set(values.filter(v => v >= 3))].sort((a, b) => a - b);
+  // OCR verliert oft das Dezimalkomma (21,9 -> 219): für die Abstimmung auch v/10 zulassen
+  const vals = [...new Set(values.flatMap(v => Number.isInteger(v) && v >= 100 && v < 1000 ? [v, v / 10] : [v]).filter(v => v >= 3))].sort((a, b) => a - b);
   const support = k => vals.filter(v => L.some(l => Math.abs(l / (v * k) - 1) < 0.012)).length;
   let best = null, bs = -1;
   for (const l of L) for (const v of vals) {
@@ -349,4 +414,67 @@ export function snapGeometry(views, ks, values) {
       else if (p.kind === 'spline' && p.poly) { p.poly[0] = f(p.poly[0]); p.poly[p.poly.length - 1] = f(p.poly[p.poly.length - 1]); }
     }
   }
+}
+
+/** Raster: Schraffurlinien (schmale, gerade, schräge Komponenten zwischen breiten Linien), schmale Kreise (RANSAC), Schnittverlauf-Striche. */
+function rasterSectionMarks(thin, thick, W, H, u, wth) {
+  const toMm = (x, y) => [x * u, (H - y) * u];
+  const hatch = [], arcs = [], strokes = [];
+  const cc = I.components(thin, W, H, 8);
+  const pix = Array.from({ length: cc.n }, () => []);
+  for (let i = 0; i < thin.length; i++) { const l = cc.lab[i]; if (l) pix[l].push(i); }
+  const reach = Math.round((wth * 0.8 + 1.2 / u)); // Abstand Ende -> breite Linie (Pixel)
+  const thickAt = (x, y) => x >= 0 && y >= 0 && x < W && y < H && thick[Math.round(y) * W + Math.round(x)];
+  let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let l = 1; l < cc.n; l++) {
+    const P = pix[l]; if (P.length < 12) continue;
+    const [bx, by, bw, bh] = cc.stats[l]; const ext = Math.max(bw, bh) * u; if (ext < 1.5) continue;
+    const step = Math.max(1, Math.floor(P.length / 600)); const Q = []; for (let k = 0; k < P.length; k += step) Q.push([P[k] % W, Math.floor(P[k] / W)]);
+    const [d, c, l2] = I.pca(Q); const thickness = Math.sqrt(l2 / Q.length) * u;
+    if (thickness < 0.25 && ext < 160) {
+      // gerade Komponente
+      let t0 = Infinity, t1 = -Infinity; for (const q of Q) { const t = (q[0] - c[0]) * d[0] + (q[1] - c[1]) * d[1]; t0 = Math.min(t0, t); t1 = Math.max(t1, t); }
+      const a = [c[0] + t0 * d[0], c[1] + t0 * d[1]], b = [c[0] + t1 * d[0], c[1] + t1 * d[1]];
+      let ang = Math.atan2(-d[1], d[0]) * 180 / Math.PI; ang = ((ang % 180) + 180) % 180;
+      if (!((ang > 25 && ang < 65) || (ang > 115 && ang < 155))) continue;
+      if (globalThis.DBG) globalThis.DBGH = (globalThis.DBGH || 0) + 1;
+      const hit = (p, s) => { for (let k = 0; k <= reach; k++) if (thickAt(p[0] + s * d[0] * k, p[1] + s * d[1] * k)) return true; return false; };
+      if (hit(a, -1) && hit(b, 1)) hatch.push([toMm(...a), toMm(...b)]);
+      continue;
+    }
+    if (ext < 3 || ext > 170 || Q.length < 20) continue;
+    // Kreisbögen per RANSAC
+    const M = Q.map(q => toMm(q[0], q[1])); let best = null;
+    for (let it = 0; it < 150; it++) {
+      const p1 = M[Math.floor(rnd() * M.length)], p2 = M[Math.floor(rnd() * M.length)], p3 = M[Math.floor(rnd() * M.length)];
+      const [cxy, r] = I.fitCircle([p1, p2, p3]); if (!(r > 1.5 && r < 85)) continue;
+      let n = 0; for (const q of M) if (Math.abs(Math.hypot(q[0] - cxy[0], q[1] - cxy[1]) - r) < 0.15) n++;
+      if (!best || n > best[0]) best = [n, cxy, r];
+    }
+    if (!best || best[0] < 15) continue;
+    const inl = M.filter(q => Math.abs(Math.hypot(q[0] - best[1][0], q[1] - best[1][1]) - best[2]) < 0.15);
+    const [c2, r2, rms] = I.fitCircle(inl); if (rms > 0.12 || !(r2 > 3)) continue;
+    const bins = new Set(inl.map(q => Math.floor(((Math.atan2(q[1] - c2[1], q[0] - c2[0]) + Math.PI) / (2 * Math.PI)) * 36) % 36));
+    if (bins.size < 3) continue;
+    // Bogenlänge muss zur Pixelzahl passen (keine zufälligen Treffer)
+    if (inl.length * step * u < 0.6 * bins.size / 36 * 2 * Math.PI * r2) continue;
+    arcs.push({ c: c2, r: r2, bins });
+  }
+  const circles = [];
+  for (const a of arcs) {
+    const m = circles.find(c => Math.hypot(c.c[0] - a.c[0], c.c[1] - a.c[1]) < Math.max(0.8, 0.04 * a.r) && Math.abs(c.r - a.r) < Math.max(0.5, 0.03 * a.r));
+    if (m) { m.n++; m.c = [(m.c[0] * (m.n - 1) + a.c[0]) / m.n, (m.c[1] * (m.n - 1) + a.c[1]) / m.n]; m.r = (m.r * (m.n - 1) + a.r) / m.n; for (const b of a.bins) m.bins.add(b); }
+    else circles.push({ c: a.c, r: a.r, bins: new Set(a.bins), n: 1 });
+  }
+  const thinCircles = circles.filter(c => c.bins.size >= 18).map(c => prim('circle', { center: c.c, r: c.r }));
+  // Schnittverlauf-Striche: kurze, breite gerade Komponenten
+  const tc = I.components(thick, W, H, 8);
+  for (let l = 1; l < tc.n; l++) {
+    const [bx, by, bw, bh] = tc.stats[l]; const L = Math.max(bw, bh) * u, Wd = Math.min(bw, bh) * u;
+    if (L > 4.5 && L < 12 && Wd < 2.2) {
+      const lo = [bx * u, (H - by - bh) * u], hi = [(bx + bw) * u, (H - by) * u];
+      strokes.push({ lo, hi, c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2], size: [hi[0] - lo[0], hi[1] - lo[1]] });
+    }
+  }
+  return { hatch, thinCircles, strokes };
 }
