@@ -42,6 +42,8 @@ Die App läuft vollständig im Browser, es gibt kein Backend. Hochgeladene Datei
   - Dieselben 5 Teile als Scans (PNG ohne DPI, TIFF, Scan-PDF, JPG ohne DPI, TIFF).
   - Schnitt/Einzelheit: `06_buchse.pdf` (Vollschnitt A-A, Einzelheit Z (5:1) mit Freistich), `07_lagerplatte_schnitt.pdf` (Schnitt A-A mit Tasche T12 und Sackbohrung T18), dazu `r06`/`r07` als 200-dpi-Scans. Sollvolumen analytisch: `examples/sollwerte_schnitt.json`.
   - Reale Zeichnung: `real/xometry_lathe_sample.webp` (1492×1054 px ≈ 90 dpi, A3, 2:1, Drittwinkelprojektion, Schnitt A-A 1:1, Einzelheit C 4:1, blaue Prüf-Ballons). Referenz: handmodelliertes Teil `tests/ref_real.py`.
+  - Reale Zeichnung A: `real/drehteil_rillen_4zu1.jpg` (1600×1131 px JPG, Schriftfeld „MASSTAB 4:1“, Schnitt mit Rillen/Senkung). Das Innenprofil der schraffierten Schnittfläche wird direkt als Pixelgebiet vektorisiert und rotiert. Referenz: `tests/ref_real_a.py` (243,16 mm³), App 243,3 mm³ (+0,06 %).
+  - Reale Zeichnung B: `real/platte_schraege_1zu2.jpg` (A3, „SCALE 1:2“, Schnitt A-A, 60°-Kegelloch, Langloch, Lochkreis). Referenz: `tests/ref_real_b.py` (202 938 mm³). Die App liefert rund +14 %, siehe Grenzen.
 - **Schnitte und Einzelheiten:**
   - Schraffur (dünne 45°-Linien zwischen Körperkanten), Schnittverlauf (kurze breite Striche mit Buchstaben), Schnitttitel „A-A“ und Ansichtsmaßstab („A-A 1:1“).
   - Drehteile: die schraffierten Flächen der Schnittansicht werden als Rotationsprofil verwendet (Bohrungen, Einstiche, Freistiche, Innenfasen). Eine eigenständige Vollschnitt-Ansicht in anderem Maßstab wird über ihren Titel-Maßstab angeglichen.
@@ -73,6 +75,9 @@ Die App läuft vollständig im Browser, es gibt kein Backend. Hochgeladene Datei
 - Sehr große Scans auf älteren Smartphones können am Speicher scheitern.
 - Schnitte im Rasterbild: es wird nur der äußere Umriss vektorisiert, Innenkanten der Schnittfläche nicht. Durchgangsbohrungen kommen dann aus der Stirnansicht (nur wenn der Schnitt innerhalb keine Schraffur zeigt); Sackbohrungen, Gewinde, Einstiche und Freistiche aus Raster-Schnitten/-Einzelheiten werden nicht modelliert (Meldung).
 - Reale, niedrig aufgelöste Zeichnungen: OCR liest viele Maße falsch (Komma fehlt „219“ statt 21,9, „Ø“ als 8/D). GD&T-Rahmen und Oberflächenzeichen werden nicht als PMI übernommen. Projektionsmethode wird nicht aus dem Symbol bestimmt; Stirnansicht links oder rechts wird gleichermaßen über die Lage zugeordnet (für Drehteile gleichwertig).
+- Platte B: Die 120°-Schräge am Umfang wird nicht modelliert, ebenso die verdeckte Ø33,02-Senkung (Tiefe ≈ 12,1) an der Nabe. Die Außenkontur hat noch Splines statt sauberer Radien, und der Schnittverlauf A-A wird nicht gefunden (Ebene geraten, darf Bohrungen nicht wegnehmen). Das Kegelloch entsteht aus zwei konzentrischen Kreisen, wenn eine Winkelangabe (60°/90°/120° …) zum aus Radien und Dicke berechneten Kegelwinkel passt.
+- Tangentialität: Übergänge Gerade/Bogen werden in 2D geprüft und gemeldet (Merkmal „Tangentialität“). Ein Einrasten auf G1 und das Einsetzen von Radien aus den Maßzahlen gibt es noch nicht.
+- Projektionsmethode (Symbol / „FIRST ANGLE“) wird nicht ausgewertet.
 - Python-Version: Schnitte/Einzelheiten sind dort nicht umgesetzt.
 
 ## Python-Version (`python/`)

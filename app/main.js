@@ -13,6 +13,8 @@ const BEISPIELE = [
   ['06_buchse.pdf', 'Buchse – Schnitt A-A + Einzelheit Z (Vektor-PDF)'], ['07_lagerplatte_schnitt.pdf', 'Lagerplatte – Schnitt A-A (Vektor-PDF)'],
   ['r06_buchse_scan.tif', 'Buchse – Schnitt + Einzelheit (Scan TIFF)'], ['r07_lagerplatte_schnitt_scan.pdf', 'Lagerplatte – Schnitt (Scan-PDF)'],
   ['real/xometry_lathe_sample.webp', 'Reale Zeichnung: Drehteil (WEBP, 90 dpi)'],
+  ['real/drehteil_rillen_4zu1.jpg', 'Reale Zeichnung: Drehteil mit Rillen, Schnitt, 4:1 (JPG)'],
+  ['real/platte_schraege_1zu2.jpg', 'Reale Zeichnung: Platte mit Kegelloch, 1:2 (JPG)'],
 ];
 
 const state = { busy: false, result: null, file: null, preview: null, edits: {}, msgs: [] };

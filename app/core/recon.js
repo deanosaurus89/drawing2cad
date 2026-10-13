@@ -114,6 +114,13 @@ function wireFromItems(items, f) {
     if (it.k === 'line') edges.push(R.makeLine(P[0], P[1]));
     else if (it.k === 'arc') edges.push(R.makeThreePointArc(P[0], P[1], P[2]));
     else {
+      // Raster-Splines: Rücksprünge/Zacken (Hinweislinien an der Kontur) entfernen, sonst entstehen ungültige Flächen
+      for (let pass = 0; pass < 3; pass++) for (let i = 1; i + 1 < P.length; i++) {
+        const a = [0, 1, 2].map(k => P[i][k] - P[i - 1][k]), b = [0, 1, 2].map(k => P[i + 1][k] - P[i][k]);
+        const la = Math.hypot(...a), lb = Math.hypot(...b);
+        if (la < 1e-6 || lb < 1e-6 || (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb) < -0.2) { P.splice(i, 1); i--; }
+      }
+      if (P.length < 3) { edges.push(R.makeLine(P[0], P[P.length - 1])); continue; }
       const m = Math.min(P.length, 25); const idx = [...new Set(Array.from({ length: m }, (_, i) => Math.round(i * (P.length - 1) / (m - 1))))];
       edges.push(R.makeBSplineApproximation(idx.map(i => P[i]), { tolerance: 0.05, degMax: 3, degMin: 2, smoothing: null }));
     }
@@ -160,8 +167,46 @@ function clipUpper(prims, yaxis, tol) {
   return out;
 }
 
+function revolveSectionRegions(ctx, sec) {
+  // Raster: schraffierte Flächen direkt als Pixelgebiete (inkl. Innenkontur: Bohrung, Rillen, Senkung, Radien)
+  const L = ctx.layout, s = ctx.s; const P = ctx.views[L.profil]; const ay = L.achse_y;
+  const up = sec.regions.filter(r => (r.lo[1] + r.hi[1]) / 2 > ay), dn = sec.regions.filter(r => (r.lo[1] + r.hi[1]) / 2 < ay);
+  const flip = dn.reduce((a, r) => a + r.area, 0) > up.reduce((a, r) => a + r.area, 0) * 1.05;
+  const use = flip ? dn : up; if (!use.length) return null;
+  const fy = q => [q[0], flip ? 2 * ay - q[1] : q[1]];
+  // Maßzahlen vor Pixelmaß: Radien auf bemaßte Ø/2 und die Länge auf die Profillänge der Hauptansicht ziehen
+  const rDim = [...new Set((ctx.phrases || []).flatMap(ph => { try { return Dm.parsePhrase(ph.text); } catch (e) { return []; } }).filter(sp => sp.typ === 'durchmesser').map(sp => sp.wert / 2))];
+  const xs = use.flatMap(r => r.prims.flatMap(p => sample(p, 4).map(q => q[0]))); const xa = Math.min(...xs), xb = Math.max(...xs);
+  const Lp = ctx.views[ctx.layoutMain ? ctx.layoutMain.profil : L.profil].size[0] / s;
+  const kx = Lp > 0 && Math.abs((xb - xa) / s / Lp - 1) < 0.03 ? Lp / ((xb - xa) / s) : 1;
+  const snapR = r => { let b = r, bd = 0.12; for (const q of rDim) if (Math.abs(q - r) < bd) { bd = Math.abs(q - r); b = q; } return b; };
+  // Länge auf Profillänge: Differenz symmetrisch auf beide Enden verteilen (Endkanten im Raster gleich unsicher)
+  const dx = kx !== 1 ? (Lp - (xb - xa) / s) / 2 : 0;
+  const x0 = xa; const f = p => [(p[0] - x0) / s + dx, snapR(Math.max(0, (p[1] - ay) / s)), 0];
+  let solid = null; const kinds = [], rv = [], faces = [];
+  for (const r of use) {
+    const prims = r.prims.map(p => { const c = JSON.parse(JSON.stringify(p)); if (c.pts) c.pts = c.pts.map(fy); if (c.center) c.center = fy(c.center); if (c.sweep && flip) c.sweep = -c.sweep; if (c.poly) c.poly = c.poly.map(fy); return c; });
+    // fitContour liefert eine geordnete geschlossene Kette -> direkt in Kantenfolge wandeln, Stöße schließen
+    const items = prims.map(p => {
+      if (p.kind === 'line') return { k: 'line', pts: [p.pts[0].slice(), p.pts[1].slice()] };
+      const sp = sample(p, 24); if (p.kind === 'arc') return { k: 'arc', pts: [sp[0], sp[Math.floor(sp.length / 2)], sp[sp.length - 1]] };
+      return { k: 'spline', pts: sp };
+    }).filter(it => dist(it.pts[0], it.pts[it.pts.length - 1]) > 1e-4);
+    for (let i = 0; i < items.length; i++) { const pr = items[(i + items.length - 1) % items.length]; items[i].pts[0] = pr.pts[pr.pts.length - 1].slice(); }
+    const fc = { items };
+    kinds.push(...kindsOf(items));
+    for (const it of items) for (const q of [it.pts[0], it.pts[it.pts.length - 1]]) { const rr = Math.abs((q[1] - ay) / s); if (rr > 0.05) rv.push(rr); }
+    try {
+      const rs = onlySolid(R.revolution(R.makeFace(wireFromItems(items, f)), [0, 0, 0], [1, 0, 0], 360));
+      solid = solid ? onlySolid(solid.fuse(rs)) : rs; faces.push(fc);
+    } catch (e) { ctx.msgs && ctx.msgs.push('WARNUNG: Schnittfläche nicht rotierbar (' + (e.message || e) + ')'); }
+  }
+  return solid ? { solid, faces, kinds, rv, flip, regions: true } : null;
+}
+
 function revolveSection(ctx, sec) {
   const L = ctx.layout, s = ctx.s; const P = ctx.views[L.profil]; const ay = L.achse_y;
+  if (ctx.raster && sec.regions && sec.regions.length) { const r = revolveSectionRegions(ctx, sec); if (r) return r; }
   const below = sec.hatch.filter(([a, b]) => (a[1] + b[1]) / 2 < ay).length, above = sec.hatch.length - below;
   const flip = below > above; const fy = q => [q[0], flip ? 2 * ay - q[1] : q[1]];
   const prims = flip ? P.prims.map(p => { const c = JSON.parse(JSON.stringify(p)); if (c.pts) c.pts = c.pts.map(fy); if (c.center) c.center = fy(c.center); if (c.sweep) c.sweep = -c.sweep; if (c.beziers) c.beziers = c.beziers.map(b => b.map(fy)); if (c.poly) c.poly = c.poly.map(fy); return c; }) : P.prims;
@@ -184,25 +229,27 @@ function revolveSection(ctx, sec) {
 
 function reconstructRevolve(ctx) {
   const L = ctx.layout, s = ctx.s; const P = ctx.views[L.profil], C = ctx.views[L.kreis]; const ay = L.achse_y;
-  let sec = (ctx.sections || []).find(x => x.view === L.profil && x.hatch.length);
+  let sec = (ctx.sections || []).find(x => x.view === L.profil && (x.hatch.length || (x.regions && x.regions.length)));
   let sctx = ctx;
   if (!sec) {
     // eigenständige Vollschnitt-Ansicht desselben Drehteils (gleiche Größe nach Maßstabsangleich)
-    sec = (ctx.sections || []).find(x => x.hatch.length >= 3 && x.view !== L.kreis && ['0', '1'].every(k => Math.abs(ctx.views[x.view].size[k] / P.size[k] - 1) < 0.04));
+    sec = (ctx.sections || []).find(x => (x.hatch.length >= 3 || (x.regions && x.regions.length)) && x.view !== L.kreis && Math.abs(ctx.views[x.view].size[0] / P.size[0] - 1) < 0.04 && Math.abs(ctx.views[x.view].size[1] / P.size[1] - 1) < 0.15);
     if (sec) {
       const S = ctx.views[sec.view];
       // Achse der Schnittansicht: Mittellinie (Ansicht symmetrisch zur Achse)
-      sctx = Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, { layout: Object.assign({}, L, { profil: sec.view, achse_y: (S.lo[1] + S.hi[1]) / 2 }) });
+      let ayS = (S.lo[1] + S.hi[1]) / 2;
+      if (sec.regions && sec.regions.length >= 2) { const y0 = Math.min(...sec.regions.map(r => r.lo[1])), y1 = Math.max(...sec.regions.map(r => r.hi[1])); ayS = (y0 + y1) / 2; }
+      sctx = Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, { layout: Object.assign({}, L, { profil: sec.view, achse_y: ayS }) });
     }
   }
   if (sec) {
-    const r = revolveSection(sctx, sec);
+    sctx.layoutMain = L; const r = revolveSection(sctx, sec);
     if (r) {
       let solid = r.solid; const kinds = r.kinds;
       const Lx = (P.hi[0] - P.lo[0]) / s, Rmax = (Math.max(P.hi[1] - ay, ay - P.lo[1])) / s;
       const extra = [];
       // Raster: Innenkanten im Schnitt werden nicht vektorisiert -> Bohrung aus Stirnansichtskreis, wenn innerhalb keine Schraffur liegt
-      if (ctx.raster && C) {
+      if (ctx.raster && C && !r.regions) {
         const S = sctx.views[sctx.layout.profil], ayS = sctx.layout.achse_y;
         const conc = C.prims.filter(c => c.kind === 'circle' && dist(c.center, C.c) < 0.6 && c.r / s < Rmax * 0.95).sort((a, b) => b.r - a.r);
         for (const c of conc) {
@@ -355,9 +402,38 @@ function sectionDepth(ctx, secs, vi, lo, hi, dA, er) {
     const top = Math.max(...iv.map(x => x[1])), bot = Math.min(...iv.map(x => x[0]));
     if (top < er[1] - 0.05) return { rng: [top, er[1] + 1], letter: sec.letter };
     if (bot > er[0] + 0.05) return { rng: [er[0] - 1, bot], letter: sec.letter };
+    if (sec.plane.geraten) continue;
     return 'voll';
   }
   return null;
+}
+
+// G1-Prüfung an Übergängen mit Bögen (2D, aus den Konturelementen; Bögen als 3-Punkt-Kreise)
+function tangentCheck(items) {
+  const tan = (it, atEnd) => {
+    const P = it.pts; if (P.length < 2) return null;
+    if (it.k === 'arc' && P.length >= 3) {
+      const c = circumC(P[0], P[1], P[2]); if (!c) return null; const q = atEnd ? P[P.length - 1] : P[0];
+      const rx = q[0] - c[0], ry = q[1] - c[1]; let t = [-ry, rx];
+      const ref = atEnd ? [P[P.length - 1][0] - P[P.length - 2][0], P[P.length - 1][1] - P[P.length - 2][1]] : [P[1][0] - P[0][0], P[1][1] - P[0][1]];
+      if (t[0] * ref[0] + t[1] * ref[1] < 0) t = [ry, -rx]; const l = Math.hypot(...t); return [t[0] / l, t[1] / l];
+    }
+    const a = atEnd ? P[P.length - 2] : P[0], b = atEnd ? P[P.length - 1] : P[1]; const l = Math.hypot(b[0] - a[0], b[1] - a[1]); return l > 1e-9 ? [(b[0] - a[0]) / l, (b[1] - a[1]) / l] : null;
+  };
+  let n = 0, t = 0, ecken = 0, max = 0;
+  for (let i = 0; i < items.length; i++) {
+    const A = items[i], B = items[(i + 1) % items.length];
+    if (!((A.k === 'arc' && B.k !== 'spline') || (B.k === 'arc' && A.k !== 'spline'))) continue;
+    const ta = tan(A, true), tb = tan(B, false); if (!ta || !tb) continue;
+    const w = Math.acos(Math.max(-1, Math.min(1, ta[0] * tb[0] + ta[1] * tb[1]))) * 180 / Math.PI;
+    if (w < 8) { n++; if (w < 3) t++; max = Math.max(max, w); } else ecken++;
+  }
+  return { n, t, ecken, max };
+}
+function circumC(a, b, c) {
+  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1])); if (Math.abs(d) < 1e-12) return null;
+  const A = a[0] ** 2 + a[1] ** 2, B = b[0] ** 2 + b[1] ** 2, C = c[0] ** 2 + c[1] ** 2;
+  return [(A * (b[1] - c[1]) + B * (c[1] - a[1]) + C * (a[1] - b[1])) / d, (A * (c[0] - b[0]) + B * (a[0] - c[0]) + C * (b[0] - a[0])) / d];
 }
 
 function reconstructPrism(ctx, msgs) {
@@ -371,7 +447,10 @@ function reconstructPrism(ctx, msgs) {
   if (roles.length === 1) { ext.Z = [0, 10]; msgs.push('WARNUNG: Nur eine Ansicht – Dicke 10 mm angenommen (bitte in der Maßtabelle prüfen).'); }
   const dirs = { F: 'Y', T: 'Z', S: 'X' }; const names = { F: 'Vorderansicht', T: 'Draufsicht', S: 'Seitenansicht' };
   const feats = []; let solid = null; const info = {};
-  const to3 = (f, dA, val) => p => { const m = f(p); m[dA] = val; return [m.X, m.Y, m.Z]; };
+  // Konturpunkte nahe den Gesamtabmessungen exakt auf die Grenze legen: koplanare Flächen verschiedener Ansichten
+  // sind dann identisch (OCC-Boolesche Operationen scheitern an fast-, aber nicht exakt koplanaren Flächen)
+  const snapE = (A, x) => { const e = ext[A]; if (!e) return x; if (Math.abs(x - e[0]) < 0.08) return e[0]; if (Math.abs(x - e[1]) < 0.08) return e[1]; return x; };
+  const to3 = (f, dA, val) => p => { const m = f(p); for (const A of ['X', 'Y', 'Z']) if (A !== dA) m[A] = snapE(A, m[A]); m[dA] = val; return [m.X, m.Y, m.Z]; };
   const dvec = (dA, L) => dA === 'X' ? [L, 0, 0] : dA === 'Y' ? [0, L, 0] : [0, 0, L];
   const secs = (ctx.sections || []).filter(x => x.hatch.length && roles.some(([, vi]) => vi === x.view));
   for (const sec of secs) {
@@ -383,7 +462,7 @@ function reconstructPrism(ctx, msgs) {
       const mp = L.maps[sec.parent]; const ax = sec.cut.dir === 'senkrecht' ? 'x' : 'y';
       if (mp[ax][0] === nA) sec.plane = { A: nA, val: (sec.cut.pos - mp[ax][1]) * mp[ax][2] / s };
     }
-    if (!sec.plane) { sec.plane = { A: nA, val: (ext[nA][0] + ext[nA][1]) / 2 }; msgs.push(`Schnitt ${sec.letter || ''}: Schnittverlauf nicht zugeordnet – Schnittebene in Bauteilmitte angenommen.`); }
+    if (!sec.plane) { sec.plane = { A: nA, val: (ext[nA][0] + ext[nA][1]) / 2, geraten: true }; msgs.push(`Schnitt ${sec.letter || ''}: Schnittverlauf nicht zugeordnet – Schnittebene in Bauteilmitte angenommen.`); }
     msgs.push(`Schnitt ${sec.letter || ''}: ${sec.faces.length} schraffierte Fläche(n), Schnittebene ${sec.plane.A} = ${sec.plane.val.toFixed(2)} mm`);
   }
   const isSec = vi => secs.some(x => x.view === vi && x.faces.length);
@@ -395,9 +474,8 @@ function reconstructPrism(ctx, msgs) {
     const items = loopItems(loops[0].loop); const kinds = kindsOf(items);
     const w = wireFromItems(items, to3(f, dA, a));
     const pr = R.basicFaceExtrusion(R.makeFace(w), new R.Vector(dvec(dA, b - a)));
-    if (globalThis.DBG) console.log('sil', r, dA, a, b, 'vol', vol(pr), JSON.stringify(ext), items.map(i => i.k + ':' + i.pts.map(q => q.map(x => x.toFixed(1)).join(',')).join(' ')).join(' | '));
     solid = solid ? onlySolid(solid.intersect(pr)) : pr;
-    if (globalThis.DBG) console.log('  -> vol', vol(solid));
+    const g1 = tangentCheck(items); if (g1.n) feats.push({ typ: 'Tangentialität', text: `${names[r]}: ${g1.t} von ${g1.n} Übergängen Gerade/Bogen tangential (G1, max. Knick ${g1.max.toFixed(1)}°)` + (g1.ecken ? `, ${g1.ecken} echte Ecke(n)` : '') });
     feats.push({ typ: 'Silhouette', text: `${names[r]}: Umriss mit ${kinds.length} Elementen (${count(kinds, 'line')} Geraden, ${count(kinds, 'arc')} Bögen, ${count(kinds, 'spline')} Splines) entlang ${dA} extrudiert` });
   }
   if (!solid) throw new ReconError('Keine Außenkontur gefunden.');
@@ -413,18 +491,44 @@ function reconstructPrism(ctx, msgs) {
     const inside = (lo, hi) => lo[0] >= outer.lo[0] - TOL && lo[1] >= outer.lo[1] - TOL && hi[0] <= outer.hi[0] + TOL && hi[1] <= outer.hi[1] + TOL;
     const items = loops.slice(1).filter(l => inside(l.lo, l.hi)).map(l => ['schleife', l])
       .concat(circles.filter(c => c.center[0] > outer.lo[0] && c.center[1] > outer.lo[1] && c.center[0] < outer.hi[0] && c.center[1] < outer.hi[1]).map(c => ['kreis', c]));
+    const skipC = new Set();
     for (const [kind, it] of items) {
+      if (skipC.has(it)) continue;
       let lo, hi;
       if (kind === 'kreis') { lo = [it.center[0] - it.r, it.center[1] - it.r]; hi = [it.center[0] + it.r, it.center[1] + it.r]; }
       else { lo = it.lo; hi = it.hi; }
       let rng = depthRange(ctx, vi, lo, hi, dA, ext[dA]); let ausSchnitt = null;
       if (!rng) { const sd = sectionDepth(ctx, secs, vi, lo, hi, dA, ext[dA]); if (sd === 'voll') continue; if (sd) { rng = sd.rng; ausSchnitt = sd.letter; } }
+      // Bereich ohne Außenfläche oder fast ohne Tiefe ist als Bohrung aus der Ansicht unplausibel -> durchgehend
+      if (rng && kind === "kreis" && (Math.min(rng[1], ext[dA][1]) - Math.max(rng[0], ext[dA][0]) < 0.05 * (ext[dA][1] - ext[dA][0]))) { rng = null; ausSchnitt = null; }
       const durch = !rng || (rng[0] < ext[dA][0] && rng[1] > ext[dA][1]);
       const [a, b] = rng || [ext[dA][0] - 1, ext[dA][1] + 1];
       const dir = dvec(dA, 1); let tool, desc;
       if (kind === 'kreis') {
         const m = f(it.center); m[dA] = a;
         tool = R.makeCylinder(it.r / s, b - a, [m.X, m.Y, m.Z], dir); desc = `Bohrung Ø${(2 * it.r / s).toFixed(2)} mm`;
+        // Kegelloch: konzentrischer kleinerer Kreis + Winkelangabe, Kegelwinkel aus Radien/Dicke passt zur Angabe
+        const inn = circles.find(c => c !== it && c.r < it.r * 0.9 && c.r > it.r * 0.2 && dist(c.center, it.center) < 0.1 * it.r);
+        const T = ext[dA][1] - ext[dA][0];
+        if (inn && durch) {
+          const PH = ctx.phrases || [];
+          const grad = PH.filter(ph => /°/.test(ph.text));
+          const winkel = [...new Set(PH.flatMap(ph => [...ph.text.matchAll(/(\d{2,3})\s?°/g)].map(q => +q[1]))
+            .concat(PH.filter(ph => /^\d{2,3}$/.test(ph.text.trim()) && grad.some(g => g !== ph && Math.hypot(g.x - ph.x, g.y - ph.y) < 15)).map(ph => +ph.text.trim())))].filter(w => [60, 82, 90, 100, 120].includes(w));
+          const w = 2 * Math.atan((it.r - inn.r) / s / T) * 180 / Math.PI;
+          const wa = winkel.find(q => Math.abs(q - w) < 6);
+          if (wa != null) {
+            const r0 = it.r / s, r1 = Math.max(0.1, r0 - T * Math.tan(wa * Math.PI / 360));
+            const O = f(it.center); O[dA] = ext[dA][0]; const o = [O.X, O.Y, O.Z];
+            const ax = ['X', 'Y', 'Z'].indexOf(dA); const d = [0, 0, 0]; d[ax] = 1; const e = [0, 0, 0]; e[(ax + 1) % 3] = 1;
+            const P = (t, r) => o.map((v, k) => v + d[k] * t + e[k] * r);
+            const pts = [P(0, 0), P(0, r0), P(T, r1), P(T, 0)];
+            const wire = R.assembleWire(pts.map((q, k) => R.makeLine(q, pts[(k + 1) % 4])));
+            tool = onlySolid(R.revolution(R.makeFace(wire), o, d, 360));
+            desc = `Kegelloch ${wa}° Ø${(2 * r0).toFixed(2)}→Ø${(2 * r1).toFixed(2)} mm (Kegelwinkel aus Kreisen ${w.toFixed(1)}°, Angabe ${wa}°)`;
+            skipC.add(inn);
+          }
+        }
       } else {
         const li = loopItems(it.loop); const k = kindsOf(li);
         tool = R.basicFaceExtrusion(R.makeFace(wireFromItems(li, to3(f, dA, a))), new R.Vector(dvec(dA, b - a)));
@@ -648,15 +752,24 @@ export function processDrawing(dr, edits, log = () => {}) {
     const pv = !dr.dpi_known ? Ra.perViewScales(dr, views, vals) : null;
     if (pv) {
       const big = views.reduce((a, b, i) => b.size[0] * b.size[1] > views[a].size[0] * views[a].size[1] ? i : a, 0);
-      s = pv[big]; src = `Normblatt ${Math.round(dr.page_w)}×${Math.round(dr.page_h)} mm, Normmaßstab ${Ra.fmtScale(s)} aus den Maßzahlen`;
+      s = pv[big]; const Fs = dr.sheet_f || 1;
+      src = Fs !== 1 ? `Blatt laut ${dr.sheet_fmt != null ? 'Formatangabe A' + dr.sheet_fmt : 'Schriftfeld-Maßstab + Maßzahlen'} ${Math.round(dr.page_w * Fs)}×${Math.round(dr.page_h * Fs)} mm (DPI-Schätzung korrigiert), Maßstab ${Ra.fmtScale(s * Fs)}`
+        : `Normblatt ${Math.round(dr.page_w)}×${Math.round(dr.page_h)} mm, Normmaßstab ${Ra.fmtScale(s)}` + (dr.scale_txt && Math.abs(dr.scale_txt / s - 1) < 1e-6 ? ' (Schriftfeld, durch Maßzahlen bestätigt)' : ' aus den Maßzahlen');
       views.forEach((v, i) => {
         if (pv[i] === s) return;
         const f = s / pv[i], c = [(v.lo[0] + v.hi[0]) / 2, (v.lo[1] + v.hi[1]) / 2], T = q => [c[0] + (q[0] - c[0]) * f, c[1] + (q[1] - c[1]) * f];
         for (const p of v.prims.concat(v.hidden || [])) { if (p.pts) p.pts = p.pts.map(T); if (p.center) { p.center = T(p.center); p.r *= f; } if (p.poly) p.poly = p.poly.map(T); if (p.beziers) p.beziers = p.beziers.map(b => b.map(T)); }
         // Schraffur dieser Ansicht mitskalieren
         if (dr.hatch) dr.hatch = dr.hatch.map(([a, b]) => { const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; return (m[0] > v.lo[0] - 1 && m[0] < v.hi[0] + 1 && m[1] > v.lo[1] - 1 && m[1] < v.hi[1] + 1) ? [T(a), T(b)] : [a, b]; });
-        v.eigenerMassstab = pv[i]; v.blattBox = [v.lo.slice(), v.hi.slice()]; refresh(v);
-        msgs.push(`Ansicht ${i + 1}: eigener Maßstab ${Ra.fmtScale(pv[i])} (auf ${Ra.fmtScale(s)} umgerechnet)`);
+        if (dr.hatchRegions) for (const hr of dr.hatchRegions) {
+          const m = [(hr.lo[0] + hr.hi[0]) / 2, (hr.lo[1] + hr.hi[1]) / 2];
+          if (m[0] > v.lo[0] - 1 && m[0] < v.hi[0] + 1 && m[1] > v.lo[1] - 1 && m[1] < v.hi[1] + 1) {
+            for (const p of hr.prims) { if (p.pts) p.pts = p.pts.map(T); if (p.center) { p.center = T(p.center); p.r *= f; } if (p.poly) p.poly = p.poly.map(T); }
+            hr.lo = T(hr.lo); hr.hi = T(hr.hi);
+          }
+        }
+        v.eigenerMassstab = pv[i] * (dr.sheet_f || 1); v.blattBox = [v.lo.slice(), v.hi.slice()]; refresh(v);
+        msgs.push(`Ansicht ${i + 1}: eigener Maßstab ${Ra.fmtScale(pv[i] * (dr.sheet_f || 1))} (auf ${Ra.fmtScale(s * (dr.sheet_f || 1))} umgerechnet)`);
       });
     } else [s, src] = Ra.voteScale(dr, views, vals);
     Ra.snapGeometry(views, s, vals); views.forEach(refresh);
@@ -669,7 +782,8 @@ export function processDrawing(dr, edits, log = () => {}) {
   const sections = Sx.findSections(views, strokes, lab, hatch, msgs);
   for (const sec of sections) sec.hatch = hatch.filter(([a, b]) => { const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], v = views[sec.view]; return m[0] > v.lo[0] - 1 && m[0] < v.hi[0] + 1 && m[1] > v.lo[1] - 1 && m[1] < v.hi[1] + 1; });
   // Raster: vereinzelte „Schraffur“-Treffer (Textreste, Pfeile) sind kein Schnitt
-  if (raster) for (let i = sections.length - 1; i >= 0; i--) if (sections[i].hatch.length < 5 && !sections[i].letter) sections.splice(i, 1);
+  if (raster) for (let i = sections.length - 1; i >= 0; i--) { const v = views[sections[i].view]; const hasReg = (dr.hatchRegions || []).some(hr => hr.lo[0] > v.lo[0] - 1 && hr.hi[0] < v.hi[0] + 1 && hr.lo[1] > v.lo[1] - 1 && hr.hi[1] < v.hi[1] + 1); if (sections[i].hatch.length < 5 && !sections[i].letter && !hasReg) sections.splice(i, 1); }
+  for (const sec of sections) { const v = views[sec.view]; sec.regions = (dr.hatchRegions || []).filter(hr => hr.lo[0] > v.lo[0] - 1 && hr.hi[0] < v.hi[0] + 1 && hr.lo[1] > v.lo[1] - 1 && hr.hi[1] < v.hi[1] + 1); }
   ctx.sections = sections;
   if (layout.typ === 'dreh') {
     const P = views[layout.profil]; const set = new Set();
@@ -720,7 +834,7 @@ export function processDrawing(dr, edits, log = () => {}) {
     solid, result: {
       ok: true, quelle: dr.kind, strategie: strategy, meldungen: msgs, aenderungen: aend, merkmale: feats, massstab: s, massstab_schriftfeld: dr.scale_txt ?? null, dpi_bekannt: dr.dpi_known ?? null,
       volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
-      ansichten: viewBoxes, schnitte: sections.map(x => ({ buchstabe: x.letter, ansicht: rollen[x.view], schraffurlinien: x.hatch.length, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? rollen[x.parent] : null })), einzelheiten: detailInfo.map(d => ({ buchstabe: d.letter, massstab: d.k, vergroesserung: +d.ratio.toFixed(3) })), page_w: dr.page_w, page_h: dr.page_h, masse: dims, pmi, flaechen: an.faces, kanten: an.edges,
+      texte: (dr.phrases || []).map(p => p.text), ansichten: viewBoxes, schnitte: sections.map(x => ({ buchstabe: x.letter, ansicht: rollen[x.view], schraffurlinien: x.hatch.length, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? rollen[x.parent] : null })), einzelheiten: detailInfo.map(d => ({ buchstabe: d.letter, massstab: d.k, vergroesserung: +d.ratio.toFixed(3) })), page_w: dr.page_w, page_h: dr.page_h, masse: dims, pmi, flaechen: an.faces, kanten: an.edges,
       flaechen_statistik: stats, kanten_statistik: estats,
     }, mesh: an.mesh, edgeMesh: an.edgeMesh,
   };

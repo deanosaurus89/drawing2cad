@@ -116,6 +116,15 @@ export function fitContour(cnt, u, H, pxEps = 0.8, shortMm = 3.5) {
       for (let i = 1; i < n; i++) { const a = Math.atan2(P[i][1] - c[1], P[i][0] - c[0]); let d = a - prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; tot += d; prev = a; }
       if (Math.abs(tot) > 1.9 * Math.PI) return [prim('circle', { center: c, r })];
     }
+    // kleine Kreise mit angesetzten Stummeln (Mittellinien/Bezugslinien): robust nachfitten
+    if (r > 0.8 && r < 5) {
+      const inl = P.filter(q => Math.abs(Math.hypot(q[0] - c[0], q[1] - c[1]) - r) < 0.15);
+      if (inl.length >= 0.8 * n) {
+        const [c2, r2, rms2] = I.fitCircle(inl);
+        const ang = new Set(inl.map(q => Math.floor((Math.atan2(q[1] - c2[1], q[0] - c2[0]) + Math.PI) / (Math.PI / 8))));
+        if (rms2 < 0.035 * r2 && ang.size >= 15) return [prim('circle', { center: c2, r: r2 })];
+      }
+    }
   }
   const idx = I.approxPolyClosed(cnt, pxEps);
   if (idx.length < 3) return [];
@@ -274,6 +283,28 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
       let region;
       if (i === main) {
         for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (blobsD[(oy + y) * W + ox + x]) filled[y * cw + x] = 0;
+        // runde Löcher, die über (dick erkannte) Hilfslinien mit dem Umriss verschmolzen sind
+        {
+          const enc = new Uint8Array(cw * ch); for (let k = 0; k < enc.length; k++) enc[k] = filled[k] && !crop[k] ? 1 : 0;
+          const ce = I.components(enc, cw, ch, 4); const gp = 1.5 * wth + 2; const used = new Set();
+          const ok = k => { const [, , ew, eh] = ce.stats[k]; return Math.max(ew, eh) * u < 25 && Math.max(ew, eh) * u > 0.4; };
+          for (let k = 1; k < ce.n; k++) {
+            if (used.has(k) || !ok(k)) continue;
+            // Teilflächen eines durch (dick erkannte) Mittellinien geteilten Kreises zusammenfassen
+            let grp = [k], ch_ = true;
+            while (ch_) { ch_ = false; const [gx0, gy0, gx1, gy1] = grp.reduce((r, q) => { const t = ce.stats[q]; return [Math.min(r[0], t[0]), Math.min(r[1], t[1]), Math.max(r[2], t[0] + t[2]), Math.max(r[3], t[1] + t[3])]; }, [1e9, 1e9, -1e9, -1e9]);
+              for (let j = 1; j < ce.n; j++) { if (grp.includes(j) || used.has(j) || !ok(j)) continue; const t = ce.stats[j];
+                if (t[0] - gp <= gx1 && gx0 - gp <= t[0] + t[2] && t[1] - gp <= gy1 && gy0 - gp <= t[1] + t[3]) { const nx0 = Math.min(gx0, t[0]), nx1 = Math.max(gx1, t[0] + t[2]), ny0 = Math.min(gy0, t[1]), ny1 = Math.max(gy1, t[1] + t[3]); if ((nx1 - nx0) * u < 25 && (ny1 - ny0) * u < 25 && grp.length < 4) { grp.push(j); ch_ = true; } } } }
+            const [ex, ey, ex1, ey1] = grp.reduce((r, q) => { const t = ce.stats[q]; return [Math.min(r[0], t[0]), Math.min(r[1], t[1]), Math.max(r[2], t[0] + t[2]), Math.max(r[3], t[1] + t[3])]; }, [1e9, 1e9, -1e9, -1e9]);
+            const ew = ex1 - ex, eh = ey1 - ey, ea = grp.reduce((r, q) => r + ce.stats[q][4], 0);
+            if (Math.max(ew, eh) * u < 1.5 || Math.abs(ew / eh - 1) > 0.12 || ea < 0.6 * ew * eh) continue;
+            const pd2 = Math.round(wth) + 3, sx = Math.max(0, ex - pd2), sy = Math.max(0, ey - pd2), sw = Math.min(cw, ex1 + pd2) - sx, sh = Math.min(ch, ey1 + pd2) - sy;
+            const gs = new Set(grp); const one = new Uint8Array(sw * sh); for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) one[y * sw + x] = gs.has(ce.lab[(sy + y) * cw + sx + x]) ? 1 : 0;
+            const rg = I.dilate(I.close(one, sw, sh, gp), sw, sh, wth + 1); const cn = I.outerContour(rg, sw, sh); if (!cn) continue;
+            const fp = fitContour(cn.map(([x, y]) => [x + sx + ox, y + sy + oy]), u, H, 0.8 * Math.max(0.6, f));
+            if (fp.length === 1 && fp[0].kind === 'circle') { thickPrims.push(fp[0]); grp.forEach(q => used.add(q)); }
+          }
+        }
         region = I.erode(filled, cw, ch, wth + 1);
         const c3 = I.components(region, cw, ch, 4);
         if (c3.n > 2) { let b = 1; for (let k = 2; k < c3.n; k++) if (c3.stats[k][4] > c3.stats[b][4]) b = k; for (let k = 0; k < region.length; k++) region[k] = c3.lab[k] === b ? 1 : 0; }
@@ -291,11 +322,20 @@ export function finish(pre, ocrRes, dpiKnown, log = () => {}) {
   }
   log('Schraffur, Detailkreise, Schnittverlauf …');
   const { hatch, thinCircles, strokes } = rasterSectionMarks(thin, thick, W, H, u, wth);
+  log('Schraffierte Schnittflächen …');
+  const hatchRegions = rasterHatchRegions(thick, geo, thickD, tmask, W, H, u, wth, f);
   const full = phrases.map(p => p.text).join(' ');
   const m = full.match(SCALE_RE);
-  const sTxt = m ? parseFloat(m[1].replace(',', '.')) / parseFloat(m[2].replace(',', '.')) : null;
+  let sTxt = m ? parseFloat(m[1].replace(',', '.')) / parseFloat(m[2].replace(',', '.')) : null;
+  // Schriftfeld: freistehendes Verhältnis („1:2“, „4: 1“ hinter unlesbarem „MASSTAB“) im rechten unteren Blattviertel
+  const titleKs = phrases.filter(p => p.x > 0.5 * W * u && p.y < 0.3 * H * u && !/[A-Z]\s*-\s*[A-Z]/.test(p.text))
+    .map(p => p.text.match(/(?:^|[^\d,.])(\d{1,2})\s*:\s*(\d{1,2})\s*$/)).filter(Boolean).map(q => +q[1] / +q[2])
+    .filter(k => [1, 2, 2.5, 4, 5, 10, 20, 0.5, 0.4, 0.2, 0.1, 0.05].some(q => Math.abs(q / k - 1) < 1e-6));
+  if (sTxt == null && titleKs.length) sTxt = titleKs[0];
+  const fm = phrases.filter(p => p.x > 0.5 * W * u && p.y < 0.3 * H * u).map(p => p.text.trim().match(/^A([0-4])$/)).find(Boolean);
+  const sheetFmt = fm ? +fm[1] : null;
   return { kind: 'raster', thick: thickPrims, thin: [], hidden, center: [], arrows: [], phrases, scale: 1, scale_txt: sTxt, dpi_known: dpiKnown,
-    scale_src: 'vorläufig', msgs, page_w: W * u, page_h: H * u, px_mm: u, hatch, thinCircles, strokes };
+    scale_src: 'vorläufig', msgs, page_w: W * u, page_h: H * u, px_mm: u, hatch, thinCircles, strokes, hatchRegions, sheet_fmt: sheetFmt };
 }
 
 export const fmtScale = k => k >= 1 ? `${+k.toPrecision(6)}:1` : `1:${+(1 / k).toPrecision(6)}`;
@@ -318,9 +358,22 @@ export function isStdSheet(w, h) {
 export function perViewScales(dr, views, values) {
   if (!isStdSheet(dr.page_w, dr.page_h)) return null;
   const vals = [...new Set(values.flatMap(v => Number.isInteger(v) && v >= 100 && v < 1000 ? [v, v / 10] : [v]).filter(v => v >= 3))];
-  const sup = (L, k) => vals.filter(v => L.some(l => Math.abs(l / (v * k) - 1) < 0.015)).reduce((a, v) => a + Math.sqrt(v), 0);
+  let F = 1;
+  const supF = (L, k, f) => vals.filter(v => L.some(l => Math.abs(l * f / (v * k) - 1) < 0.015)).reduce((a, v) => a + Math.sqrt(v), 0);
+  const sup = (L, k) => supF(L, k, F);
   const big = views.reduce((a, b, i) => b.size[0] * b.size[1] > views[a].size[0] * views[a].size[1] ? i : a, 0);
   const all = views.flatMap(viewLens);
+  // Blattformat unsicher (DPI geraten): echtes Format über Formatangabe im Schriftfeld oder Schriftfeld-Maßstab + Maßzahlen bestimmen
+  if (!dr.dpi_known) {
+    const fmtOf = (w, h) => { const L = Math.max(w, h); return [1189, 841, 594, 420, 297].findIndex(a => Math.abs(L / a - 1) < 0.03); };
+    const fm = fmtOf(dr.page_w, dr.page_h);
+    if (dr.sheet_fmt != null && fm >= 0) F = Math.pow(2, (fm - dr.sheet_fmt) / 2);
+    else if (dr.scale_txt) {
+      let bsF = supF(all, dr.scale_txt, 1);
+      for (const f of [Math.SQRT1_2, Math.SQRT2]) { const sc = supF(all, dr.scale_txt, f); if (sc > bsF * 1.5 + 1) { bsF = sc; F = f; } }
+    }
+    if (F !== 1) dr.sheet_f = F;
+  }
   // 1) Ansichtstitel mit Maßstab („A-A 1:1“, „Z (5:1)“) direkt über/unter einer Ansicht
   const kt = views.map(() => null);
   for (const ph of dr.phrases || []) {
@@ -346,12 +399,14 @@ export function perViewScales(dr, views, values) {
   });
   let kM = null, bs = 1;
   for (const k of STD) { const s = sup(viewLens(views[big]), k) * 2 + sup(all, k); if (s > bs) { bs = s; kM = k; } }
+  if (dr.scale_txt && STD.includes(dr.scale_txt) && sup(all, dr.scale_txt) > 0) kM = dr.scale_txt;
   if (kp[big] != null) kM = kp[big];
   if (kM == null) return null;
+  // Rückgabe: Blatt-mm (gemessen) je Bauteil-mm
   return views.map((v, i) => {
-    if (kp[i] != null) return kp[i];
+    if (kp[i] != null) return kp[i] / F;
     // eigener Maßstab nur mit Ansichtstitel (oder Größenvergleich dazu) – reine Maßzahl-Abstimmung je Ansicht ist zu unsicher
-    return kM;
+    return kM / F;
   });
 }
 
@@ -477,4 +532,51 @@ function rasterSectionMarks(thin, thick, W, H, u, wth) {
     }
   }
   return { hatch, thinCircles, strokes };
+}
+
+/** Schraffierte Flächen im Raster: Hintergrundgebiete zwischen breiten Linien mit hoher Dichte dünner Schräglinien.
+ *  Liefert je Fläche die geschlossene Randkontur (Primitive auf der Mitte der breiten Linien). */
+function rasterHatchRegions(thick, geo, thickD, tmask, W, H, u, wth, f) {
+  // Grenzen = Skelett der breiten Linien (Linienmitte) -> Flächenrand liegt exakt auf der Kantenmitte
+  const skT = I.skeleton(thick, W, H);
+  const bg = new Uint8Array(W * H); for (let i = 0; i < bg.length; i++) bg[i] = skT[i] ? 0 : 1;
+  const cc = I.components(bg, W, H, 4); const st = cc.stats; const n = cc.n;
+  // dünne Tinte je Gebiet sammeln (Pixelkoordinaten), dann Schräglinien zählen
+  const pts = new Map();
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x; if (!(geo[i] && !thickD[i] && !tmask[i])) continue;
+    // Pixel gehört zum Gebiet des nächstgelegenen Hintergrundlabels (dünne Linien sind selbst Hintergrund für „thick“)
+    const l = cc.lab[i]; if (!l) continue;
+    let q = pts.get(l); if (!q) pts.set(l, q = []); q.push(i);
+  }
+  const out = [];
+  for (let l = 1; l < n; l++) {
+    const [x0, y0, w, h, a] = st[l]; const amm = a * u * u;
+    if (amm < 2 || w > 0.6 * W || h > 0.6 * H || x0 <= 1 || y0 <= 1 || x0 + w >= W - 1 || y0 + h >= H - 1) continue;
+    const q = pts.get(l) || []; if (q.length < 20) continue;
+    // Komponenten der dünnen Tinte im Gebiet
+    const set = new Set(q); const seen = new Set(); let diagLen = 0, nDiag = 0;
+    for (const s0 of q) {
+      if (seen.has(s0)) continue; const comp = [s0]; seen.add(s0);
+      for (let k = 0; k < comp.length; k++) { const c = comp[k]; for (const d of [1, -1, W, -W, W + 1, W - 1, -W + 1, -W - 1]) { const nb = c + d; if (set.has(nb) && !seen.has(nb)) { seen.add(nb); comp.push(nb); } } }
+      if (comp.length < 8) continue;
+      const P = comp.map(c => [c % W, (c - c % W) / W]); const [d, , l2] = I.pca(P);
+      let ext = 0; { let mn = 1e9, mx = -1e9; for (const p of P) { const t = p[0] * d[0] + p[1] * d[1]; mn = Math.min(mn, t); mx = Math.max(mx, t); } ext = (mx - mn) * u; }
+      const ang = Math.abs(Math.atan2(d[1], d[0]) * 180 / Math.PI) % 180;
+      if (ext > 0.8 && Math.sqrt(l2 / P.length) * u < 0.3 && ((ang > 20 && ang < 75) || (ang > 105 && ang < 160))) { diagLen += ext; nDiag++; }
+    }
+    // Schraffur ist dicht: Schräglinienlänge je Fläche (Bemaßungs-/Hinweislinien in großen Ansichtsflächen sind dünn gesät)
+    if (nDiag < 2 || diagLen < 2.5 || diagLen / amm < 0.025) continue;
+    const dens = diagLen;
+    const pd = Math.round(wth) + 4, ox = Math.max(0, x0 - pd), oy = Math.max(0, y0 - pd);
+    const cw = Math.min(W, x0 + w + pd) - ox, ch = Math.min(H, y0 + h + pd) - oy;
+    let reg = new Uint8Array(cw * ch);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (cc.lab[(oy + y) * W + ox + x] === l) reg[y * cw + x] = 1;
+    // Einschnitte (Hilfs-/Schraffurlinien an der Kante) schließen, dünne Ausläufer entfernen
+    { const rs = Math.max(3, 0.8 / u); reg = I.close(I.dilate(reg, cw, ch, 2), cw, ch, rs); }
+    const cnt = I.outerContour(reg, cw, ch); if (!cnt) continue;
+    const prims = fitContour(cnt.map(([x, y]) => [x + ox, y + oy]), u, H, 0.7 * Math.max(0.6, f), 1.2);
+    if (prims.length) out.push({ prims, lo: [x0 * u, (H - y0 - h) * u], hi: [(x0 + w) * u, (H - y0) * u], area: amm, schraeg_mm: +dens.toFixed(1), n: nDiag });
+  }
+  return out;
 }

@@ -181,6 +181,8 @@ export async function readFile(file, base, opts = {}) {
   return { kind: 'raster', gray, W, H, W0, dpi, dpiKnown: !!srcDpi && !guessed, preview: { canvas: prevCanvas, pageW: W * 25.4 / dpi, pageH: H * 25.4 / dpi }, msg };
 }
 function scaleFor(W0, H0, srcDpi, prof) {
+  // Quellen mit Bildschirmauflösung sind klein: auf allen Geräten gleich auf 300 dpi bringen (reproduzierbares Ergebnis)
+  if (srcDpi && srcDpi < 150) prof = { ...prof, dpi: 300, maxPx: 18e6 };
   // Hochskalieren nur bei bekannter/erratener, niedriger Auflösung: 200-dpi-Scans werden bei 300 dpi robuster erkannt,
   // Bildschirmauflösungen (72–120 dpi) brauchen deutlich mehr (bis 4×) für Strichstärken und OCR
   let s = srcDpi ? Math.min(srcDpi < 150 ? 4 : 1.6, prof.dpi / srcDpi) : Math.min(1, prof.dpi / 300);
