@@ -3,6 +3,7 @@ import { readFile, getOcr, profile } from './input.js';
 import { ocrPasses } from './core/ocr.js';
 import { Viewer, TYPE_COLORS, TYPE_NAMES } from './viewer.js';
 import { createSectionUI } from './sectionui.js';
+import { BUILD, showWhatsNew, maybeShowWhatsNew, versionText } from './changelog.js';
 
 const BASE = new URL('../', import.meta.url).href;
 const $ = s => document.querySelector(s);
@@ -253,5 +254,11 @@ sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, es
 window.__schnittKandidaten = () => sectionUi.candidates();
 window.__schnittWahl = id => sectionUi.selectId(id);
 window.__schnittModell = id => sectionUi.build(id);
+
+$('#app-version').textContent = BUILD.version;
+$('#app-version').title = versionText();
+$('#app-version-info').textContent = versionText();
+for (const id of ['#btn-whatsnew', '#btn-whatsnew-info']) $(id).onclick = () => showWhatsNew();
+setTimeout(() => maybeShowWhatsNew(), 1000);
 
 readyP.then(() => { status('Bereit – Datei wählen oder Beispiel laden.'); bar(1); if (!state.file) ladeBeispiel('01_flansch.pdf'); }, e => status('CAD-Kern konnte nicht geladen werden: ' + e.message));
