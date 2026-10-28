@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>drawing2cad – Testliste</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom));background:#f3f5f8;color:#1b2633}
+  h1{font-size:18px;margin:0 0 8px} h2{font-size:16px;margin:18px 0 6px;color:#0d47a1;border-bottom:1px solid #c5d3e3}
+  .note{color:#567;font-size:13px;margin:0 0 10px}
+  .it{background:#fff;border-radius:10px;padding:10px;margin:10px 0;box-shadow:0 1px 3px #0002}
+  .t{margin:6px 0} .steps,.exp{font-size:14px;margin:4px 0} .exp{color:#1b5e20}
+  .s label{display:inline-flex;align-items:center;gap:4px;min-height:44px;margin:0 12px 0 0;font-size:15px}
+  textarea{width:100%;box-sizing:border-box;min-height:44px;font-size:16px;margin-top:6px}
+  textarea.cm{display:none} .it.need textarea.cm{display:block} .it.err textarea.cm{border:2px solid #c62828}
+  button#go{font-size:17px;padding:12px 18px;border:0;border-radius:10px;background:#1565c0;color:#fff;width:100%;min-height:48px}
+  #out{width:100%;min-height:120px;margin-top:10px;font-size:13px;box-sizing:border-box}
+  #ver{font-weight:600}
+</style>
+</head>
+<body>
+<h1>drawing2cad – Testliste <span id="ver">…</span></h1>
+<p class="note">Je Punkt einen Status wählen. Bei ⚠️ und ❌ ist ein Kommentar Pflicht. Die Eingaben bleiben in diesem Browser gespeichert. Nach einem Deploy die App einmal hart neu laden, sonst bleibt die zuletzt gesehene Version liegen und die Neuigkeiten öffnen sich nicht.</p>
+<div id="list"></div>
+<button id="go" type="button">Ergebnis kopieren</button>
+<textarea id="out" readonly placeholder="Ergebnis erscheint hier – falls Kopieren nicht klappt, hier markieren und kopieren."></textarea>
+<script>
+const K = 'd2c-testliste';
+const L = { ok: '✅', warn: '⚠️', fail: '❌', skip: '⏸' };
+const GROUPS = [
+  { version: '2026.0.2', title: 'Schnittkontur bestätigen', items: [
+    { id: 'S1', t: 'Farbige Vorschläge (Buchse)', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“ laden. Reiter Zeichnung, Block „Schnittkontur bestätigen“.', exp: 'Grün = Vorschlag (meiste Schraffur). Orange = andere schraffierte Hälfte. Violett = Bahn ohne Schraffur (Bohrung bzw. Einstich).' },
+    { id: 'S2', t: 'Kontur bestätigen', steps: 'Eine farbige Fläche oder den Eintrag in der Liste antippen.', exp: 'Die gewählte Kontur ist markiert. Hinweistext nennt den grünen Vorschlag.' },
+    { id: 'S3', t: 'Achse', steps: 'Art „Drehen“. Mittellinie, Y-Wert, Endpunkte antippen oder Achse ↑/↓. Achsenseite wechseln.', exp: 'Die Achse liegt auf der Mittellinie und lässt sich verschieben. Endpunkte sind greifbar.' },
+    { id: 'S4', t: 'Maßstab', steps: 'Feld „Maßstab“ ansehen (z. B. 1:1 oder 2:1) und die Zeile darunter.', exp: 'Der erkannte Maßstab steht im Feld. Die Quelle steht darunter. Unsichere Werte sind markiert.' },
+    { id: 'S5', t: '3D aus Schnitt (Buchse)', steps: 'Grünen Vorschlag wählen, Achse und Maßstab prüfen, „3D aus Schnitt“.', exp: 'Buchse mit Bohrung, Einstich und Freistich. Volumen etwa 75.953 mm³.' },
+    { id: 'S6', t: 'Bahn ohne Schraffur', steps: 'Violette Bahn „ohne Schraffur“ wählen und erneut „3D aus Schnitt“.', exp: 'Vollkörper ohne das Schnittprofil (deutlich anderes Volumen, grob 13.000 mm³).' },
+    { id: 'S7', t: 'Automatik', steps: 'Nach einem Schnittmodell „Automatik“ drücken.', exp: 'Das bisherige automatische Modell ist wieder da. Die Rekonstruktion der Beispiele bleibt unverändert.' },
+    { id: 'S8', t: 'Punkte schieben', steps: '„Punkte schieben“, einen Punkt der Kontur ziehen, „Punkte fertig“.', exp: 'Die Kontur folgt dem Punkt. „Zurücksetzen“ stellt die Bahn wieder her.' },
+    { id: 'S9', t: 'Punkt einfügen', steps: 'Im Modus „Punkte schieben“ auf „Punkt einfügen“ tippen.', exp: 'Ein neuer Punkt erscheint auf der längsten Kante und lässt sich schieben.' },
+    { id: 'S10', t: 'Lagerplatte extrudieren', steps: 'Beispiel „Lagerplatte – Schnitt A-A“. Art „Extrudieren“, Tiefe prüfen, „3D aus Schnitt“.', exp: 'Tiefe aus der Nachbaransicht (60 mm). Es entsteht ein konstantes Profil, nicht die Verschneidung der Automatik.' },
+    { id: 'N1', t: 'Neuigkeiten immer öffnen', steps: 'Im Kopf oder unter Info „Neuigkeiten“ antippen. Dann ✕, Esc und Tippen neben den Dialog.', exp: 'Dialog „Neu in dieser Version“ mit Release Notes. Alle drei Wege schließen ihn. Das ✕ ist groß.' },
+    { id: 'N2', t: 'Version sichtbar', steps: 'Kopfzeile und Reiter Info ansehen.', exp: 'Die aktuelle Version (gleich version.json) steht im Kopf und unter Info.' },
+    { id: 'N3', t: 'Testliste', steps: '„Testliste“ antippen.', exp: 'test.html öffnet sich in einem neuen Tab.' },
+    { id: 'N4', t: 'Auto-Popup nur bei neuer Version', steps: 'Frischen Browser: Seite laden (kein Dialog, Schlüssel wird nur gespeichert). Danach localStorage d2c-seen-version auf eine ältere Fassung setzen und neu laden. Danach noch einmal laden.', exp: 'Dialog nur beim ersten Laden nach dem Versionswechsel, etwa eine Sekunde nach dem Start. Zweites Laden: kein Dialog.' },
+  ]},
+  { version: '2026.0.1', title: 'Bestehende Funktionen', items: [
+    { id: 'B1', t: 'Beispiel laden', steps: 'Beispiel „Flansch (Vektor-PDF)“ wählen.', exp: '3D-Modell erscheint, Volumen und Flächen stehen unter Info. Kein Fehler in der Statuszeile.' },
+    { id: 'B2', t: 'Datei oder Foto', steps: 'PDF, PNG, JPG, TIFF oder Foto wählen.', exp: 'Die Zeichnung erscheint links, das Modell in der 3D-Ansicht. Die Datei bleibt auf dem Gerät.' },
+    { id: 'B3', t: '3D-Ansicht und ViewCube', steps: 'Drehen, schieben, zoomen (am Telefon: 1 Finger drehen, 2 Finger zoomen). „Alles“. ViewCube: Fläche, Kante und Ecke.', exp: 'Die Ansicht folgt. „Alles“ zeigt das ganze Teil. Der ViewCube springt auf die angetippte Richtung.' },
+    { id: 'B4', t: 'Typfarben, Kanten, PMI, Auswahl', steps: 'Die drei Schalter umlegen. Eine Fläche und eine Kante antippen. Ein PMI-Maß antippen.', exp: 'Farben, Kanten und Maße schalten sich. Die Auswahl zeigt Typ und Parameter. Das Maß hebt die Bezugsflächen hervor.' },
+    { id: 'B5', t: 'Maß ändern', steps: 'Unter Maße einen Wert ändern, „Modell neu erzeugen“, dann „Zurücksetzen“.', exp: 'Das Modell folgt dem neuen Maß. Zurücksetzen stellt den ursprünglichen Wert wieder her.' },
+    { id: 'B6', t: 'Export STEP, STL, PMI', steps: 'Schema AP214, AP203 und AP242 jeweils als STEP speichern. Dazu STL und PMI (JSON).', exp: 'Dateien werden heruntergeladen. STEP lässt sich wieder öffnen. PMI-JSON enthält die Maße.' },
+    { id: 'B7', t: 'Schnitt und Einzelheit in der Vorschau', steps: 'Buchse laden. Zeichnung: Rahmen um Schnitt und Einzelheit.', exp: 'Schnitt rot schraffiert, Einzelheit und Detailkreis violett, Schnittverlauf rot gestrichelt.' },
+    { id: 'B8', t: 'Mobil: Reiter', steps: 'Schmale Breite oder Telefon: Zeichnung, 3D, Maße, Info.', exp: 'Je ein Reiter, große Flächen, nichts liegt unter der Systemleiste. Info zeigt App-Version, Neuigkeiten und Testliste.' },
+  ]},
+];
+const st = JSON.parse(localStorage.getItem(K) || '{}');
+const list = document.getElementById('list');
+for (const g of GROUPS) {
+  const h = document.createElement('h2');
+  h.textContent = g.version + ' – ' + g.title;
+  list.appendChild(h);
+  for (const it of g.items) {
+    const el = document.createElement('div');
+    el.className = 'it';
+    el.dataset.id = it.id;
+    el.dataset.rel = g.version;
+    el.innerHTML = `<div class="h"><b>${it.id}</b></div><div class="t"><b></b></div><div class="steps"></div><div class="exp"></div>
+      <div class="s"></div><textarea class="cm" placeholder="Kommentar (Pflicht bei ⚠️/❌)"></textarea>`;
+    el.querySelector('.t b').textContent = it.t;
+    el.querySelector('.steps').textContent = '▶ ' + it.steps;
+    el.querySelector('.exp').textContent = '✔ Erwartet: ' + it.exp;
+    const s = el.querySelector('.s');
+    for (const [val, lab] of [['ok', '✅ Vollständig'], ['warn', '⚠️ Eingeschränkt'], ['fail', '❌ Geht nicht'], ['skip', '⏸ Nicht getestet']]) {
+      const label = document.createElement('label');
+      label.innerHTML = `<input type="radio" name="${it.id}" value="${val}"> ${lab}`;
+      s.appendChild(label);
+    }
+    list.appendChild(el);
+  }
+}
+function save(el) {
+  const id = el.dataset.id;
+  const s = el.querySelector('input:checked').value;
+  const c = el.querySelector('textarea.cm').value;
+  st[id] = { s, c };
+  localStorage.setItem(K, JSON.stringify(st));
+  el.classList.toggle('need', s === 'warn' || s === 'fail' || !!c.trim());
+}
+document.querySelectorAll('.it').forEach(el => {
+  const o = st[el.dataset.id];
+  const v = o && o.s ? o.s : 'skip';
+  const r = el.querySelector(`input[value="${v}"]`);
+  if (r) r.checked = true;
+  if (o && o.c) el.querySelector('textarea.cm').value = o.c;
+  el.querySelectorAll('input').forEach(i => { i.onchange = () => save(el); });
+  el.querySelector('textarea.cm').oninput = () => save(el);
+  save(el);
+});
+let VER = '(Version unbekannt)';
+fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => {
+  if (!v || !v.version) return;
+  VER = v.version + (v.date ? ' · ' + v.date : '');
+  document.getElementById('ver').textContent = VER;
+  document.title = 'drawing2cad – Testliste ' + v.version;
+}).catch(() => {});
+document.getElementById('go').onclick = () => {
+  let bad = false;
+  const lines = ['Testergebnis drawing2cad ' + VER, new Date().toISOString().slice(0, 16)];
+  let rel = '';
+  document.querySelectorAll('.it').forEach(el => {
+    const id = el.dataset.id;
+    const s = el.querySelector('input:checked').value;
+    const c = el.querySelector('textarea.cm').value.trim();
+    const need = (s === 'warn' || s === 'fail') && !c;
+    el.classList.toggle('err', need);
+    if (need) bad = true;
+    if (el.dataset.rel !== rel) { rel = el.dataset.rel; lines.push('', rel); }
+    lines.push(id + ' ' + L[s] + (c ? ' – ' + c : ''));
+  });
+  if (bad) { alert('Bitte bei ⚠️ und ❌ einen Kommentar eintragen.'); return; }
+  const txt = lines.join('\n');
+  const o = document.getElementById('out');
+  o.value = txt;
+  const done = () => alert('Kopiert – im Chat einfügen.');
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
+    .then(done, () => { o.focus(); o.select(); document.execCommand('copy'); done(); });
+};
+</script>
+</body>
+</html>

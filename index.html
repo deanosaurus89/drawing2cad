@@ -11,6 +11,9 @@
 <body>
 <header>
   <h1>drawing2cad</h1>
+  <span id="app-version" class="ver" title="Version"></span>
+  <button type="button" id="btn-whatsnew" class="btn klein">Neuigkeiten</button>
+  <a id="btn-testliste" class="btn klein" href="test.html" target="_blank" rel="noopener">Testliste</a>
   <label class="btn primaer">📄 Datei<input id="datei" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,application/pdf,image/*" hidden></label>
   <label class="btn kamera">📷 Foto<input id="kamera" type="file" accept="image/*" capture="environment" hidden></label>
   <select id="beispiel" aria-label="Beispiel laden"><option value="">Beispiel laden …</option></select>
@@ -100,6 +103,12 @@
     </div>
   </section>
   <section id="p-info" class="panel">
+    <h2>App</h2>
+    <p id="app-version-info" class="leer"></p>
+    <div class="zeile">
+      <button type="button" id="btn-whatsnew-info" class="btn">Neuigkeiten</button>
+      <a class="btn" href="test.html" target="_blank" rel="noopener">Testliste</a>
+    </div>
     <h2>Modell</h2>
     <div id="info"><p class="leer">–</p></div>
     <h2>PMI</h2>
