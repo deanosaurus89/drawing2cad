@@ -21,6 +21,56 @@
   <section id="p-zeichnung" class="panel">
     <h2>Zeichnung</h2>
     <div id="vorschau"><p class="leer">Noch keine Zeichnung. PDF (Vektor oder Scan), PNG, JPG oder TIFF wählen – oder ein Beispiel.</p></div>
+    <div id="schnitt-panel" hidden>
+      <h2>Schnittkontur bestätigen</h2>
+      <div id="sk-actions" class="zeile">
+        <button type="button" id="sk-build" class="btn primaer">3D aus Schnitt</button>
+        <button type="button" id="sk-auto" class="btn">Automatik</button>
+      </div>
+      <p id="schnitt-hinweis" class="leer"></p>
+      <div id="schnitt-liste"></div>
+      <div class="zeile">
+        <button type="button" id="sk-edit" class="btn">Punkte schieben</button>
+        <button type="button" id="sk-punkt" class="btn" hidden>Punkt einfügen</button>
+        <button type="button" id="sk-reset" class="btn">Zurücksetzen</button>
+        <button type="button" id="sk-weg" class="btn">Bahn verwerfen</button>
+      </div>
+      <label>Art
+        <select id="sk-art" aria-label="Drehteil oder Platte">
+          <option value="drehen">Drehen (Rotationsachse)</option>
+          <option value="extrudieren">Extrudieren (Platte)</option>
+        </select>
+      </label>
+      <div id="sk-achse-block">
+        <p class="leer" id="sk-achse-info"></p>
+        <label id="sk-achse-y-label">Achse Y auf dem Blatt (mm)
+          <input id="sk-achse-y" type="number" step="0.1" inputmode="decimal">
+        </label>
+        <div class="zeile">
+          <button type="button" id="sk-achse-hoch" class="btn">Achse ↑</button>
+          <button type="button" id="sk-achse-runter" class="btn">Achse ↓</button>
+          <button type="button" id="sk-achse-tippen" class="btn">Endpunkte antippen</button>
+          <button type="button" id="sk-achse-mitte" class="btn">Mittellinie</button>
+          <button type="button" id="sk-seite" class="btn">Achsenseite wechseln</button>
+        </div>
+      </div>
+      <div id="sk-extr-block" hidden>
+        <label>Tiefe (mm)
+          <input id="sk-tiefe" type="number" step="0.1" min="0.1" inputmode="decimal" value="10">
+        </label>
+        <label>Extrusionsrichtung
+          <select id="sk-dir" aria-label="Extrusionsrichtung">
+            <option value="z">senkrecht zum Blatt (Z)</option>
+            <option value="y">Y</option>
+            <option value="x">X</option>
+          </select>
+        </label>
+      </div>
+      <label>Maßstab (Blatt : Teil, z. B. 2:1 oder 1:2)
+        <input id="sk-scale" type="text" inputmode="decimal" value="1:1" aria-label="Maßstab">
+        <small id="sk-scale-src"></small>
+      </label>
+    </div>
     <div id="meldungen"></div>
   </section>
   <section id="p-3d" class="panel">

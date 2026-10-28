@@ -71,7 +71,7 @@ function neighbors(views, i, tol = 2.0) {
   });
   return out.sort((a, b) => a[0] - b[0]);
 }
-function detectLayout(views) {
+export function detectLayout(views) {
   const ci = findCircleView(views);
   if (ci != null) {
     const nb = neighbors(views, ci);
@@ -842,6 +842,61 @@ export function stepText(solid, schema = 'AP214IS') {
 }
 export function isValid(solid) { const a = new oc.BRepCheck_Analyzer(solid.wrapped, true, false); const v = a.IsValid_2 ? a.IsValid_2() : a.IsValid(); a.delete(); return v; }
 
+/** Volumen nur aus bestätigter Schnittkontur, Achse und Maßstab (Drehen) bzw. Tiefe (Extrudieren). */
+export function modelFromConfirmedSection(spec) {
+  if (!R) throw new ReconError('CAD-Kern nicht bereit.');
+  const scale = +spec.scale;
+  if (!(scale > 0)) throw new ReconError('Maßstab muss größer als 0 sein.');
+  const items0 = spec.items;
+  if (!items0 || !items0.length) throw new ReconError('Keine Schnittkontur.');
+  let solid, strategy, feats;
+  if (spec.mode === 'extrudieren') {
+    const depth = +spec.depth;
+    if (!(depth > 0)) throw new ReconError('Extrusionstiefe muss größer als 0 sein.');
+    const items = Sx.orientItems(Sx.closeItems(items0));
+    const pts = items.flatMap(it => it.pts);
+    const x0 = Math.min(...pts.map(p => p[0])), y0 = Math.min(...pts.map(p => p[1]));
+    const dir = spec.dir === 'y' ? [0, depth, 0] : spec.dir === 'x' ? [depth, 0, 0] : [0, 0, depth];
+    const f = p => {
+      const x = (p[0] - x0) / scale, y = (p[1] - y0) / scale;
+      if (spec.dir === 'y') return [x, 0, y];
+      if (spec.dir === 'x') return [0, y, x];
+      return [x, y, 0];
+    };
+    try { solid = onlySolid(R.basicFaceExtrusion(R.makeFace(wireFromItems(items, f)), new R.Vector(dir))); }
+    catch (e) { throw new ReconError('Extrusion der bestätigten Kontur fehlgeschlagen (' + (e.message || e) + '). Kontur prüfen (geschlossen, ohne Kreuzung).'); }
+    strategy = 'Platte (bestätigte Schnittkontur)';
+    feats = [{ typ: 'Extrusion (bestätigt)', text: `${spec.label || 'Schnittkontur'} extrudiert, Tiefe ${depth.toFixed(2)} mm entlang ${spec.dir === 'y' ? 'Y' : spec.dir === 'x' ? 'X' : 'Z'}, Maßstab ${Sx.fmtScale(scale)}` }];
+  } else {
+    let prof;
+    try { prof = Sx.revolveProfile(items0, spec.axis, scale, spec.side || 'auto'); }
+    catch (e) { throw new ReconError(e.message || String(e)); }
+    try { solid = onlySolid(R.revolution(R.makeFace(wireFromItems(prof.items, p => [p[0], p[1], 0])), [0, 0, 0], [1, 0, 0], 360)); }
+    catch (e) { throw new ReconError('Rotation der bestätigten Kontur fehlgeschlagen (' + (e.message || e) + '). Achse und Kontur prüfen.'); }
+    strategy = 'Drehteil (bestätigte Schnittkontur)';
+    feats = [{ typ: 'Drehung (bestätigt)', text: `${spec.label || 'Schnittkontur'} um die bestätigte Achse rotiert, Profil ${prof.area.toFixed(1)} mm², Radius ${prof.rmin.toFixed(2)}…${prof.rmax.toFixed(2)} mm, Maßstab ${Sx.fmtScale(scale)}` }];
+  }
+  try { solid = solid.simplify(); } catch (e) { /* ignorieren */ }
+  const gueltig = isValid(solid);
+  const an = analyse(solid);
+  const bb = solid.boundingBox.bounds; const [x0, y0, z0] = bb[0], [x1, y1, z1] = bb[1];
+  const stats = {}, estats = {};
+  for (const f of an.faces) stats[f.typ] = (stats[f.typ] || 0) + 1;
+  for (const e of an.edges) estats[e.typ] = (estats[e.typ] || 0) + 1;
+  const meldungen = ['Modell aus der bestätigten Schnittkontur (nicht aus der automatischen Bahnwahl).'];
+  if (!gueltig) meldungen.push('WARNUNG: Das B-Rep ist laut OpenCASCADE nicht gültig.');
+  return {
+    solid, result: {
+      ok: true, quelle: 'schnitt', strategie: strategy, meldungen, aenderungen: [], merkmale: feats,
+      massstab: scale, massstab_schriftfeld: null, dpi_bekannt: null,
+      volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
+      texte: [], ansichten: [], schnitte: [], einzelheiten: [], schnitt_konturen: [], page_w: null, page_h: null,
+      masse: [], pmi: [], flaechen: an.faces, kanten: an.edges, flaechen_statistik: stats, kanten_statistik: estats,
+      teil_typ: spec.mode === 'extrudieren' ? 'prisma' : 'dreh',
+    }, mesh: an.mesh, edgeMesh: an.edgeMesh,
+  };
+}
+
 // ---------------------------------------------------------------- Hauptfunktion
 /** dr: Zwischenformat (Vektor oder Raster); edits: {M1: wert}; Rückgabe: Ergebnis + solid. */
 export function processDrawing(dr, edits, log = () => {}) {
@@ -896,7 +951,7 @@ export function processDrawing(dr, edits, log = () => {}) {
     detailInfo.push(d);
   }
   assignHidden(views, dr.hidden);
-  let s, tol;
+  let s, tol, scaleSrc;
   if (raster) {
     const vals = dr.phrases.flatMap(ph => Dm.parsePhrase(ph.text)).filter(sp => sp.typ === 'laenge' || sp.typ === 'durchmesser').map(sp => sp.wert);
     // OCR liest „Ø“ oft als „8“: Variante ohne führende 8 zusätzlich anbieten
@@ -926,9 +981,10 @@ export function processDrawing(dr, edits, log = () => {}) {
         msgs.push(`Ansicht ${i + 1}: eigener Maßstab ${Ra.fmtScale(pv[i] * (dr.sheet_f || 1))} (auf ${Ra.fmtScale(s * (dr.sheet_f || 1))} umgerechnet)`);
       });
     } else [s, src] = Ra.voteScale(dr, views, vals);
+    scaleSrc = src;
     Ra.snapGeometry(views, s, vals); views.forEach(refresh);
     msgs.push(`Maßstab: ${src}`); tol = 0.15;
-  } else { s = dr.scale; tol = TOL; msgs.push(`Maßstab ${Ra.fmtScale(s)} (${dr.scale_src})`); }
+  } else { s = dr.scale; tol = TOL; scaleSrc = dr.scale_src || ''; msgs.push(`Maßstab ${Ra.fmtScale(s)} (${dr.scale_src})`); }
   if (globalThis.DBG) for (const v of views) console.log('VIEW', JSON.stringify(v.prims.map(p=>[p.kind, p.r&&+p.r.toFixed(2), p.sweep&&+p.sweep.toFixed(2), (p.pts||[]).map(q=>q.map(x=>+x.toFixed(1)))])).slice(0,600), v.lo.map(x => x.toFixed(1)), v.hi.map(x => x.toFixed(1)), v.prims.length, v.prims.filter(p => p.kind === 'circle').map(c => c.r.toFixed(2) + '@' + c.center.map(x => x.toFixed(1))).join(' '));
   for (const v of views) { v.weak = v.prims.filter(p => p.weak); v.prims = v.prims.filter(p => !p.weak); }
   const layout = detectLayout(views);
@@ -985,12 +1041,14 @@ export function processDrawing(dr, edits, log = () => {}) {
   }
   for (const sec of sections) if (sec.cut) viewBoxes.push({ lo: r3([Math.min(sec.cut.p0[0], sec.cut.p1[0]), Math.min(sec.cut.p0[1], sec.cut.p1[1])]), hi: r3([Math.max(sec.cut.p0[0], sec.cut.p1[0]), Math.max(sec.cut.p0[1], sec.cut.p1[1])]), rolle: sec.letter, art: 'schnittverlauf' });
   for (const d of dims) { delete d.linie; delete d.spitze; if (d.anker) for (const k in d.anker) if (typeof d.anker[k] === 'number') d.anker[k] = Math.round(d.anker[k] * 1000) / 1000; }
+  const schnittKonturen = Sx.collectContours(views, sections, { tol, centers: dr.center, layout, scale: s });
+  const schnittTiefe = Sx.suggestDepth(views, sections, s);
   return {
     solid, result: {
-      ok: true, quelle: dr.kind, strategie: strategy, meldungen: msgs, aenderungen: aend, merkmale: feats, massstab: s, massstab_schriftfeld: dr.scale_txt ?? null, dpi_bekannt: dr.dpi_known ?? null,
+      ok: true, quelle: dr.kind, strategie: strategy, meldungen: msgs, aenderungen: aend, merkmale: feats, massstab: s, massstab_schriftfeld: dr.scale_txt ?? null, massstab_quelle: scaleSrc, dpi_bekannt: dr.dpi_known ?? null,
       volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
       texte: (dr.phrases || []).map(p => p.text), ansichten: viewBoxes, schnitte: sections.map(x => ({ buchstabe: x.letter, ansicht: rollen[x.view], schraffurlinien: x.hatch.length, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? rollen[x.parent] : null })), einzelheiten: detailInfo.map(d => ({ buchstabe: d.letter, massstab: d.k, vergroesserung: +d.ratio.toFixed(3) })), page_w: dr.page_w, page_h: dr.page_h, masse: dims, pmi, flaechen: an.faces, kanten: an.edges,
-      flaechen_statistik: stats, kanten_statistik: estats,
+      flaechen_statistik: stats, kanten_statistik: estats, teil_typ: layout.typ, schnitt_konturen: schnittKonturen, schnitt_tiefe: schnittTiefe,
     }, mesh: an.mesh, edgeMesh: an.edgeMesh,
   };
 }
