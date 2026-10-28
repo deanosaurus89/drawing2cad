@@ -36,15 +36,17 @@ async function init(base) {
   post({ type: 'ready', ms: performance.now() - t0 });
 }
 
+function deliver(id, built, ms) {
+  lastSolid = built.solid;
+  if (ms != null) built.result.ms = Math.round(ms);
+  const lines = Float32Array.from(built.edgeMesh.lines);
+  post({ type: 'result', id, result: built.result, mesh: built.mesh, edgeLines: lines, edgeGroups: built.edgeMesh.edgeGroups },
+    [built.mesh.vertices.buffer, built.mesh.normals.buffer, built.mesh.triangles.buffer, lines.buffer]);
+}
 function run(id, dr, edits) {
   const t = performance.now();
   const work = structuredClone(dr); if (dr.thinAt) Object.defineProperty(work, "thinAt", { enumerable: false, value: dr.thinAt });
-  const { solid, result, mesh, edgeMesh } = RC.processDrawing(work, edits, txt => prog(id, txt));
-  lastSolid = solid;
-  result.ms = Math.round(performance.now() - t);
-  const lines = Float32Array.from(edgeMesh.lines);
-  post({ type: 'result', id, result, mesh, edgeLines: lines, edgeGroups: edgeMesh.edgeGroups },
-    [mesh.vertices.buffer, mesh.normals.buffer, mesh.triangles.buffer, lines.buffer]);
+  deliver(id, RC.processDrawing(work, edits, txt => prog(id, txt)), performance.now() - t);
 }
 
 function fail(id, e) {
@@ -79,6 +81,10 @@ self.onmessage = async ev => {
     } else if (m.type === 'rebuild') {
       if (!lastDr) throw new Error('Keine Zeichnung geladen.');
       run(id, lastDr, m.edits);
+    } else if (m.type === 'section_model') {
+      prog(id, '3D aus bestätigter Schnittkontur …');
+      const t = performance.now();
+      deliver(id, RC.modelFromConfirmedSection(m.spec), performance.now() - t);
     } else if (m.type === 'export') {
       if (!lastSolid) throw new Error('Kein Modell vorhanden.');
       if (m.format === 'step') {

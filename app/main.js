@@ -2,6 +2,7 @@
 import { readFile, getOcr, profile } from './input.js';
 import { ocrPasses } from './core/ocr.js';
 import { Viewer, TYPE_COLORS, TYPE_NAMES } from './viewer.js';
+import { createSectionUI } from './sectionui.js';
 
 const BASE = new URL('../', import.meta.url).href;
 const $ = s => document.querySelector(s);
@@ -17,7 +18,8 @@ const BEISPIELE = [
   ['real/platte_schraege_1zu2.jpg', 'Reale Zeichnung: Platte mit Kegelloch, 1:2 (JPG)'],
 ];
 
-const state = { busy: false, result: null, file: null, preview: null, edits: {}, msgs: [] };
+const state = { busy: false, result: null, file: null, preview: null, edits: {}, msgs: [], auto: null };
+let sectionUi;
 window.__ready = false; window.__state = state;
 
 // ---------------------------------------------------------------- Worker
@@ -41,7 +43,7 @@ worker.postMessage({ type: 'init', base: BASE });
 // ---------------------------------------------------------------- UI-Helfer
 function status(t) { $('#status').textContent = t; }
 function bar(f) { $('#fortschritt div').style.width = f == null || f >= 1 ? '0' : (f * 100).toFixed(0) + '%'; }
-function busy(b) { state.busy = b; for (const s of ['#neu', '#x-step', '#x-stl', '#x-pmi']) $(s).disabled = b || !state.result; $('#beispiel').disabled = b; }
+function busy(b) { state.busy = b; for (const s of ['#neu', '#x-step', '#x-stl', '#x-pmi', '#sk-build']) { const el = $(s); if (el) el.disabled = b || !state.result; } $('#beispiel').disabled = b; }
 function msg(t, err) { const d = document.createElement('div'); d.textContent = t; if (err) d.className = 'fehler'; $('#meldungen').appendChild(d); }
 function tab(t) { $('main').dataset.tab = t; document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('aktiv', b.dataset.tab === t)); if (t === '3d') viewer.resize(); }
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => tab(b.dataset.tab)));
@@ -122,22 +124,37 @@ function fehler(e) {
 
 function showPreview(pv) {
   state.preview = pv; const el = $('#vorschau'); el.innerHTML = '';
-  if (!pv) return; pv.canvas.removeAttribute('style'); el.appendChild(pv.canvas);
+  if (!pv) return;
+  const wrap = document.createElement('div'); wrap.id = 'blatt'; wrap.className = 'blatt';
+  pv.canvas.removeAttribute('style'); wrap.appendChild(pv.canvas);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.id = 'konturen';
+  wrap.appendChild(svg);
+  const g = document.createElement('div'); g.id = 'griffe'; wrap.appendChild(g);
+  el.appendChild(wrap);
 }
 function drawViewBoxes(r) {
   const el = $('#vorschau'); el.querySelectorAll('.box').forEach(b => b.remove());
   const pv = state.preview; if (!pv || !r.ansichten || !r.page_w) return;
+  const host = $('#blatt') || el; const svg = $('#konturen');
   for (const v of r.ansichten) {
     // Ansichtskoordinaten: mm, y nach oben ab Seitenunterkante
     const b = document.createElement('div'); b.className = 'box' + (v.art && v.art !== 'ansicht' ? ' ' + v.art : '');
     b.style.left = (v.lo[0] / r.page_w * 100) + '%'; b.style.width = ((v.hi[0] - v.lo[0]) / r.page_w * 100) + '%';
     b.style.top = ((r.page_h - v.hi[1]) / r.page_h * 100) + '%'; b.style.height = ((v.hi[1] - v.lo[1]) / r.page_h * 100) + '%';
-    if (v.rolle) b.innerHTML = `<span>${esc(v.rolle)}</span>`; el.appendChild(b);
+    if (v.rolle) b.innerHTML = `<span>${esc(v.rolle)}</span>`;
+    if (svg && svg.parentNode === host) host.insertBefore(b, svg); else host.appendChild(b);
   }
 }
 
-function zeige(r, name, ms) {
+function zeige(r, name, ms, opts = {}) {
   const res = r.result; state.result = res; lastRaster = res.quelle === 'raster' || lastRaster;
+  if (!opts.fromSection && r.mesh && r.mesh.vertices) {
+    state.auto = {
+      result: res,
+      mesh: { vertices: r.mesh.vertices.slice(), normals: r.mesh.normals.slice(), triangles: r.mesh.triangles.slice(), groups: r.mesh.groups },
+      edgeLines: r.edgeLines.slice(), edgeGroups: r.edgeGroups,
+    };
+  }
   viewer.setModel(r.mesh, r.edgeLines, r.edgeGroups, res);
   drawViewBoxes(res);
   for (const t of res.meldungen || []) msg(t);
@@ -160,9 +177,10 @@ function zeige(r, name, ms) {
     li.onclick = () => { viewer.onPmiClick(it); tab('3d'); };
     $('#pmi').appendChild(li);
   }
+  try { sectionUi && sectionUi.onResult(res, opts); } catch (e) { console.warn(e); }
   status(`Fertig: ${res.flaechen.length} Flächen, ${fmt(res.volumen_mm3, 1)} mm³ (${(ms / 1000).toFixed(1)} s)`);
-  window.__ready = true; window.__letztes = { name, volumen: res.volumen_mm3, flaechen: res.flaechen.length, pmi: res.pmi.length, gueltig: res.gueltig };
-  if (matchMedia('(max-width: 899px)').matches) tab('3d');
+  window.__ready = true; window.__letztes = { name, volumen: res.volumen_mm3, flaechen: res.flaechen.length, pmi: res.pmi.length, gueltig: res.gueltig, strategie: res.strategie };
+  if (!opts.fromSection && matchMedia('(max-width: 899px)').matches) tab('3d');
 }
 function tabelleMasse(res) {
   const tb = $('#masse tbody'); tb.innerHTML = '';
@@ -230,5 +248,10 @@ window.__aendere = edits => rebuild(edits);
 window.__kamera = () => ({ pos: viewer.camera.position.toArray(), dir: viewer.viewDir().toArray(), target: viewer.controls.target.toArray() });
 window.__viewer = viewer;
 window.__cubePunkt = d => viewer.cubeScreen(d);
+
+sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, esc, zeige, fehler });
+window.__schnittKandidaten = () => sectionUi.candidates();
+window.__schnittWahl = id => sectionUi.selectId(id);
+window.__schnittModell = id => sectionUi.build(id);
 
 readyP.then(() => { status('Bereit – Datei wählen oder Beispiel laden.'); bar(1); if (!state.file) ladeBeispiel('01_flansch.pdf'); }, e => status('CAD-Kern konnte nicht geladen werden: ' + e.message));
