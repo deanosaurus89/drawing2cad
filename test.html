@@ -38,6 +38,12 @@
 const K = 'd2c-testliste';
 const L = { ok: '✅', warn: '⚠️', fail: '❌', skip: '⏸' };
 const GROUPS = [
+  { version: '2026.0.6', title: 'Arbeitsablauf', items: [
+    { id: 'A1', t: 'Rolle und Operation', steps: 'Trainingswelle oder Buchse laden. Block „So arbeiten wir uns vor“, Punkt 1.', exp: 'Jede Ansicht hat Rolle (normale Ansicht oder Schnitt) und, wenn sie Schritt 1 oder Schnitt ist, Rotieren oder Extrudieren. Genau ein Schritt-1-Kreis ist gesetzt.' },
+    { id: 'A2', t: 'Halbkontur', steps: 'Schritt 1 auf Rotieren stellen. Hälfte umschalten.', exp: 'Violette Achse, grün gefüllte Hälfte. Der Text sagt, welche Seite rotiert wird. Extrudieren zeigt die volle Kontur und blendet die Achse ab.' },
+    { id: 'A3', t: 'Schritt 1 erzeugen', steps: '„Schritt 1 erzeugen“.', exp: 'Die 3D-Ansicht zeigt einen Körper. Die Statuszeile nennt das Volumen. Vor dem Klick stand im Text, dass sich vorher nichts ändert.' },
+    { id: 'A4', t: 'Weitere Schritte', steps: 'Buchse laden. Block Konstruktionsschritte. Einen Zusatz oder Abzug bestätigen. Einen Hinweis „Gelesen“.', exp: 'Bestätigen ändert das Volumen und sagt das vorher. „Gelesen“ lässt das Volumen gleich. Ein später Schritt ist gesperrt, solange Schritt 1 nicht bestätigt ist.' },
+  ]},
   { version: '2026.0.5', title: 'Mittellinie und Bahn', items: [
     { id: 'M1', t: 'Mittellinie erkannt', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“. Reiter Zeichnung, Block Schnittkontur, Art Drehen.', exp: 'Eine violett gestrichelte Mittellinie liegt auf der gezeichneten Strichlinie. Die grüne Bahn ist die Kontur, die gedreht wird.' },
     { id: 'M2', t: 'Linie nachträglich markieren', steps: '„Linie als Mittellinie“, eine bestehende Kante antippen (Buchse oder Training Welle).', exp: 'Die violette Achse springt auf diese Linie. Hinweis nennt „angeklickte Linie“. Drehen und Extrudieren nutzen sie.' },

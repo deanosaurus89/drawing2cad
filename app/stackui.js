@@ -61,15 +61,23 @@ export function createStackUI(api) {
       const stLabel = s.status === 'bestaetigt' ? 'bestätigt' : s.status === 'uebersprungen' ? 'übersprungen' : 'Vorschlag';
       const tag = appliesStep(s) && s.status === 'vorschlag' ? ' <span class="badge hoch">wird gebaut</span>' : (wait ? ' <span class="badge mittel">bitte bestätigen</span>' : '');
       const fail = built && built.ok === false ? `<p class="fehler">${built.text}</p>` : '';
+      const basis = ui.steps.find(x => x.rolle === 'basis' && x.op);
+      const basisBereit = basis && (basis.status === 'bestaetigt' || appliesStep(basis));
+      const spaeter = s.rolle !== 'basis' && s.rolle !== 'blatt' && s.rolle !== 'hinweis' && s.rolle !== 'einzelheit' && !basisBereit;
+      const nurLesen = !s.op && !s.opWennBestaetigt;
       el.innerHTML = `<div>${badge(s.status, stLabel)}${badge(s.confidence, s.confidence)}${badge('rolle', ROLLE[s.rolle] || s.rolle)}${tag}</div>
-        <b></b><p class="grund"></p>${fail}
+        <b></b><p class="was"></p><p class="wirkung"></p><p class="grund"></p>${fail}
         <div class="zeile">
-          <button type="button" class="btn" data-act="ok">Bestätigen</button>
+          <button type="button" class="btn" data-act="ok">${nurLesen ? 'Gelesen' : 'Bestätigen'}</button>
           <button type="button" class="btn" data-act="skip">Überspringen</button>
           <button type="button" class="btn" data-act="undo">Rückgängig</button>
         </div>`;
       el.querySelector('b').textContent = s.titel;
+      el.querySelector('.was').textContent = 'Was tun? ' + (s.tun || '');
+      el.querySelector('.wirkung').textContent = 'Wirkung: ' + (s.wirkung || '');
       el.querySelector('.grund').textContent = s.grund;
+      const ok = el.querySelector('[data-act="ok"]');
+      if (spaeter) { ok.disabled = true; ok.title = 'Zuerst Schritt 1 bestätigen. Dieser Knopf ändert sonst nichts.'; }
       const undo = el.querySelector('[data-act="undo"]');
       undo.disabled = s.status === 'vorschlag' && !s.angewendet && !s.zurueckgestellt;
       el.querySelector('[data-act="ok"]').onclick = () => confirm(s);
@@ -89,6 +97,8 @@ export function createStackUI(api) {
     if (!s.op && s.opWennBestaetigt) s.op = s.opWennBestaetigt;
     if (s.contourId && live()) live().select(s.contourId);
     render();
+    if (!s.op) { status('Gelesen. Das Volumen bleibt unverändert.'); return; }
+    update(false);
   }
   function skip(s) {
     const was = s.angewendet;

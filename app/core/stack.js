@@ -335,7 +335,7 @@ export function proposeStack(res) {
       id: 'BASIS',
       rolle: 'basis',
       op: mode,
-      titel: mode === 'drehen' ? 'Basis: Drehen des Hauptschnitts' : 'Basis: Extrudieren des Hauptschnitts',
+      titel: mode === 'drehen' ? 'Schritt 1: Hauptbestandteil durch Rotieren' : 'Schritt 1: Hauptbestandteil durch Extrudieren',
       confidence: bc.level,
       grund: bc.grund,
       contourId: basisC.id,
@@ -364,5 +364,30 @@ export function proposeStack(res) {
   steps.push(...faseSteps(src));
   steps.push(...senkungSteps(src));
   const ov = overall(scope, steps, free);
-  return { scope, confidence: ov.confidence, grund: ov.grund, schritte: steps };
+  return { scope, confidence: ov.confidence, grund: ov.grund, schritte: steps.map(mitErklaerung) };
+}
+
+function mitErklaerung(s) {
+  let tun = 'Prüfen und entscheiden.';
+  let wirkung = 'Das Modell ändert sich erst nach Bestätigen und einem erfolgreichen Neuaufbau.';
+  if (s.rolle === 'basis' && s.op === 'drehen') {
+    tun = 'Schnitt und Rotieren prüfen, dann Bestätigen.';
+    wirkung = 'Schritt 1: der erste Körper entsteht durch Rotation. Das Volumen in der 3D-Ansicht wechselt auf diesen Körper.';
+  } else if (s.rolle === 'basis' && s.op === 'extrudieren') {
+    tun = 'Schnitt und Extrudieren prüfen, Tiefe ansehen, dann Bestätigen.';
+    wirkung = 'Schritt 1: der erste Körper entsteht durch Extrusion. Das Volumen wechselt auf diesen Körper.';
+  } else if (s.op === 'add' || s.opWennBestaetigt === 'add') {
+    tun = 'Bestätigen, wenn diese Kontur zusätzliches Material ist.';
+    wirkung = 'Das Volumen wird größer (Vereinigung, Add). Überspringen lässt den Körper unverändert.';
+  } else if (s.op === 'cut' || s.opWennBestaetigt === 'cut') {
+    tun = 'Bestätigen, wenn hier Material weg soll (Bohrung, Einstich).';
+    wirkung = 'Das Volumen wird kleiner (Abzug, Cut). Überspringen lässt die Stelle stehen.';
+  } else if (s.op === 'fase' || s.op === 'senkung') {
+    tun = 'Bestätigen, wenn das Merkmal am Körper sitzen soll.';
+    wirkung = 'Es wird Material abgezogen. Ohne Bestätigung passiert nichts.';
+  } else if (s.rolle === 'hinweis' || s.rolle === 'blatt' || s.rolle === 'einzelheit') {
+    tun = 'Nur lesen. Nichts anzuklicken, was das Volumen ändern soll.';
+    wirkung = 'Kein Einfluss auf das Volumen. „Gelesen“ merkt sich nur, dass Sie den Hinweis gesehen haben.';
+  }
+  return { ...s, tun, wirkung };
 }

@@ -61,6 +61,12 @@ h2 small{font-weight:normal;color:#667}
 #ansicht-panel{margin-top:10px;padding:8px;border:1px solid #d9e0e8;border-radius:8px;background:#f8fafc}
 #ansicht-panel h2{margin-top:0}
 #av-liste{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.fuehrung{margin:8px 0 8px 18px;padding:0}
+.fuehrung>li{margin:12px 0}
+.fuehrung .ruhig{opacity:.55}
+.was,.wirkung{font-size:13px;margin:4px 0}
+.was{color:#1d2733}
+.wirkung{color:#1b5e20}
 .av-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .av-row select{max-width:100%;min-width:160px}
 #ansicht-panel label{display:flex;flex-direction:column;gap:4px;font-size:13px;margin:8px 0}

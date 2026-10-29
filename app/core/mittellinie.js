@@ -214,6 +214,46 @@ export function bahnAusAnsicht(view, tol = 0.15) {
   } catch { return null; }
 }
 
+function clipHalbebene(poly, fr, sign) {
+  const inside = p => side(fr, p) * sign >= -1e-4;
+  const inter = (a, b) => {
+    const sa = side(fr, a), sb = side(fr, b);
+    const t = sa / (sa - sb || 1e-12);
+    return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+  };
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const inA = inside(a), inB = inside(b);
+    if (inA && inB) out.push(b.slice());
+    else if (inA && !inB) out.push(inter(a, b));
+    else if (!inA && inB) { out.push(inter(a, b)); out.push(b.slice()); }
+  }
+  return out.filter((p, i, arr) => i === 0 || dist(p, arr[i - 1]) > 1e-4);
+}
+
+function polyFlaeche(poly) {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    s += a[0] * b[1] - a[1] * b[0];
+  }
+  return Math.abs(s) / 2;
+}
+
+/** Fläche auf einer Seite der Mittellinie. side: 'auto' | 1 | -1. Das ist die Halbkontur fürs Rotieren. */
+export function halbkontur(poly, axis, side = 'auto') {
+  if (!poly || poly.length < 3 || !axis || !axis.p0 || !axis.p1) return null;
+  const fr = frame(axis.p0, axis.p1);
+  const pos = clipHalbebene(poly, fr, 1);
+  const neg = clipHalbebene(poly, fr, -1);
+  let use = side === -1 || side === '-1' ? -1 : 1;
+  if (side === 'auto' || side == null || side === '') use = polyFlaeche(pos) >= polyFlaeche(neg) ? 1 : -1;
+  const clipped = use < 0 ? neg : pos;
+  if (clipped.length < 3 || polyFlaeche(clipped) < 0.5) return null;
+  return { poly: clipped.map(r3), seite: use, flaeche: +polyFlaeche(clipped).toFixed(1) };
+}
+
 /** true, wenn die Kontur nur auf einer Seite der Mittellinie liegt (Halbschnitt). */
 export function eineSeite(pts, axis, tol = 0.35) {
   if (!axis || !axis.p0 || !axis.p1 || !pts || pts.length < 3) return false;
