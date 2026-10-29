@@ -1,8 +1,14 @@
 // Version und „Neu in dieser Version“. version.json im Stamm muss version und date von BUILD entsprechen.
-export const BUILD = { version: '2026.0.4', date: '2026-10-29' };
+export const BUILD = { version: '2026.0.5', date: '2026-10-29' };
 
 /** Neueste Fassung zuerst. Kurz halten: Dialog nach einem Versionswechsel und über „Neuigkeiten“. */
 export const CHANGELOG = [
+  { version: '2026.0.5', date: '2026-10-29', items: [
+    'Mittellinie: Strichlinie und aufgelöste Kurz-lang-Folge werden erkannt.',
+    'Fehlte die Erkennung, eine bestehende Linie antippen. Ohne Mittellinie zwei Kanten wählen, die Achse liegt dazwischen.',
+    'Dieselbe Mittellinie gilt für Drehen und fürs Ergänzen einer Halbkontur beim Extrudieren.',
+    'Die verwendete Bahn ist in der Zeichnung grün, die Mittellinie violett gestrichelt.',
+  ] },
   { version: '2026.0.4', date: '2026-10-29', items: [
     'Trainingspaare von Martin: acht Zeichnungen im Menü, STEP/IGES unter beispiele/train/cad zum Vergleich.',
     'Körperkanten: einzelne sehr dicke Striche verdecken nicht mehr die 0,35-mm-Linie. „Keine Ansichten“ nur noch, wenn wirklich keine Gruppe da ist.',

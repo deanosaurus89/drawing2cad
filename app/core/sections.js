@@ -1,5 +1,6 @@
 // Schnitte (Schraffur, Schnittverlauf, Schnittbezeichnung) und Einzelheiten (Detailkreis, Maßstab) erkennen.
 import { prim, sample, bbox, dist, Graph, pointInPoly, polyCrossY, loopItems, arcFrom3pts } from './geom.js';
+import { erkenneMittellinie } from './mittellinie.js';
 
 const segDist = (p, a, b) => {
   const d = [b[0] - a[0], b[1] - a[1]]; const dd = Math.max(d[0] * d[0] + d[1] * d[1], 1e-12);
@@ -336,7 +337,9 @@ function rankContours(list) {
 function roundItems(items) { return items.map(it => ({ k: it.k, pts: it.pts.map(r3p) })); }
 
 /** Rotationsachse: Mittellinie in der Ansicht, sonst Symmetrie / erkannte Drehachse. */
-export function proposeAxis(view, centers, layout) {
+export function proposeAxis(view, centers, layout, extra = {}) {
+  const found = erkenneMittellinie(view, { center: centers || [], thin: extra.thin || [], hidden: extra.hidden || [] });
+  if (found) return { p0: found.p0, p1: found.p1, quelle: found.quelle };
   const lines = (centers || []).filter(p => p.kind === 'line' && p.pts && p.pts.length >= 2);
   const cands = [];
   for (const p of lines) {
@@ -367,7 +370,7 @@ export function collectContours(views, sections, opt = {}) {
     for (const hr of sec.regions || []) { const c = contourFromRegion(hr); if (c) raw.push(c); }
     const ranked = rankContours(raw);
     if (!ranked.length) continue;
-    const achse = proposeAxis(v, opt.centers, opt.layout);
+    const achse = proposeAxis(v, opt.centers, opt.layout, opt);
     ranked.forEach((c, i) => {
       n++;
       const items = closeItems(roundItems(c.items));

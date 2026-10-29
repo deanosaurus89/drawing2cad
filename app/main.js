@@ -6,7 +6,10 @@ import { createSectionUI } from './sectionui.js';
 import { createStackUI } from './stackui.js';
 import { dimKlasse, pruefmerkmale } from './core/dims.js';
 import { analyseBlatt } from './core/recon.js';
+import { itemsFromPoly } from './core/sections.js';
+import { bahnAusAnsicht, ansichtFuerBahn } from './core/mittellinie.js';
 import { createViewUI } from './viewui.js';
+import { createAchsenUI } from './achsenui.js';
 import { BUILD, showWhatsNew, maybeShowWhatsNew, versionText } from './changelog.js';
 
 const BASE = new URL('../', import.meta.url).href;
@@ -296,7 +299,8 @@ window.__kamera = () => ({ pos: viewer.camera.position.toArray(), dir: viewer.vi
 window.__viewer = viewer;
 window.__cubePunkt = d => viewer.cubeScreen(d);
 
-sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, esc, zeige, fehler });
+const achsen = createAchsenUI({ $, state, msg });
+sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, esc, zeige, fehler, achsen });
 function fillPruef(rows) {
   const tb = $('#pruef tbody'); if (!tb) return;
   tb.innerHTML = '';
@@ -318,13 +322,30 @@ async function baueHinweis(h) {
     state.analyse = a;
     viewUi.show(a);
     await readyP;
-    const r = await call({ type: 'vector', ...state.vectorInp, hinweis: h });
+    const nutzerAchse = h.achse && (h.achse.quelle === 'markiert' || h.achse.quelle === 'abgeleitet');
+    const poly = nutzerAchse && (h.modus === 'drehen' || h.modus === 'extrudieren') ? bahnAusAnsicht(ansichtFuerBahn(a)) : null;
+    let r;
+    if (poly && poly.length >= 3) {
+      const v = ansichtFuerBahn(a);
+      const andere = (a.views || []).filter(x => x !== v);
+      const depth = andere.length ? Math.min(...andere.map(x => Math.min(x.size[0], x.size[1]))) : 10;
+      r = await call({
+        type: 'section_model',
+        spec: {
+          items: itemsFromPoly(poly), mode: h.modus, axis: h.achse,
+          scale: a.massstab || (a.dr && a.dr.scale) || 1, side: 'auto',
+          depth: depth > 0.5 ? depth : 10, dir: 'z', label: 'Bestätigte Bahn',
+        },
+      });
+      r.result.bahn = { poly, achse: h.achse };
+      r.result.page_w = a.page_w; r.result.page_h = a.page_h;
+    } else r = await call({ type: 'vector', ...state.vectorInp, hinweis: h });
     zeige(r, state.file ? state.file.name : '', performance.now() - t0);
   } catch (e) { fehler(e); window.__ready = true; }
   finally { busy(false); }
 }
 let viewUi;
-viewUi = createViewUI({ $, bauen: h => baueHinweis(h), erneut: h => {
+viewUi = createViewUI({ $, msg, achsen, bauen: h => baueHinweis(h), erneut: h => {
   if (!state.vectorInp) return;
   const a = analyseBlatt(state.vectorInp.ex, state.vectorInp.tc, state.vectorInp.w, state.vectorInp.h, h);
   state.analyse = a;
