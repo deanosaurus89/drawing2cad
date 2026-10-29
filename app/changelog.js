@@ -1,8 +1,16 @@
 // Version und „Neu in dieser Version“. version.json im Stamm muss version und date von BUILD entsprechen.
-export const BUILD = { version: '2026.0.3', date: '2026-10-29' };
+export const BUILD = { version: '2026.0.4', date: '2026-10-29' };
 
 /** Neueste Fassung zuerst. Kurz halten: Dialog nach einem Versionswechsel und über „Neuigkeiten“. */
 export const CHANGELOG = [
+  { version: '2026.0.4', date: '2026-10-29', items: [
+    'Trainingspaare von Martin: acht Zeichnungen im Menü, STEP/IGES unter beispiele/train/cad zum Vergleich.',
+    'Körperkanten: einzelne sehr dicke Striche verdecken nicht mehr die 0,35-mm-Linie. „Keine Ansichten“ nur noch, wenn wirklich keine Gruppe da ist.',
+    'Ansichten: Haupt, abgeleitet, Schnitt, Einzelheit, Isometrie nur zur Orientierung. Bei Unsicherheit erst bestätigen, dann 3D.',
+    'Linienzüge werden zu Geraden, Kreisbögen und Kreisen. Lücke und „Kontur schließen“ sind einstellbar. Drehen oder Extrudieren, Achse auch ohne Mittellinie.',
+    'Prüfmerkmale: Nennmaß, Toleranz, GD&T und Prüfmaß. Neues Projekt leert Modell, Stack, PMI, Maße und Meldungen.',
+    '3D-PMI: Maßlinien in eigenen Bahnen, Texte weichen in mehrere Richtungen aus.',
+  ] },
   { version: '2026.0.3', date: '2026-10-29', items: [
     'Testliste: feste Leiste mit großem „Schließen“ und „← Zurück zur App“. Esc geht zurück, sonst zur App.',
     'Feature-Stack: Basis aus bestätigtem Hauptschnitt (Drehen oder Extrudieren), weitere Schnitte als Add/Cut, Einzelheiten und Fasen nur nach Bestätigung.',

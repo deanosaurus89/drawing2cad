@@ -65,6 +65,7 @@ self.onmessage = async ev => {
     if (m.type === 'vector') {
       prog(id, 'Vektorgeometrie auswerten …');
       lastDr = Pdf.readPdfVector(m.ex, m.tc, m.w, m.h);
+      if (m.hinweis) lastDr.hinweis = m.hinweis;
       run(id, lastDr, null);
     } else if (m.type === 'raster_prepare') {
       prog(id, 'Bild binarisieren …');

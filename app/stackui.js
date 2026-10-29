@@ -198,8 +198,10 @@ export function createStackUI(api) {
   const btn = $('#sk-stack');
   if (btn) btn.onclick = () => update(false);
 
+  function reset() { ui.steps = []; ui.proposal = null; ui.bericht = []; render(); }
+
   return {
-    onResult, update, render,
+    onResult, update, render, reset,
     steps: () => ui.steps.map(s => ({ id: s.id, rolle: s.rolle, op: s.op, status: s.status, confidence: s.confidence, angewendet: !!s.angewendet, titel: s.titel })),
     proposal: () => ui.proposal,
   };

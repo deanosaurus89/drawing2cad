@@ -43,6 +43,54 @@ const GDT_RE = /⌖|⊕|⊥|∥|⌒|⌓|↗|rundheit|geradheit|ebenheit|zylindr|
 const PRUEF_RE = /prüf|pruef/i;
 const ABSTAND_TYP = new Set(['laenge', 'tiefe', 'tasche', 'teilkreis', 'Abstand', 'Tiefe', 'Tasche (Größe)', 'Teilkreis (Lagemaß)']);
 
+function tolText(d) {
+  if (!d) return '';
+  if (d.passung) return d.passung;
+  if (d.tol_o == null && d.tol_u == null) return '';
+  const o = d.tol_o, u = d.tol_u;
+  if (o != null && u != null && Math.abs(o + u) < 1e-9) return '±' + String(o).replace('.', ',');
+  const fmt = x => (x > 0 ? '+' : '') + String(x).replace('.', ',');
+  if (o != null && u != null) return fmt(o) + '/' + fmt(u);
+  return '';
+}
+
+/** Prüfmerkmal-Tabelle aus Maßen und Text (Ballon, Nennmaß, Toleranz, GD&T, Prüfmaß). */
+export function pruefmerkmale(dims, phrases) {
+  const rows = [];
+  const seen = new Set();
+  const balloons = (phrases || []).filter(p => /^\d{1,3}$/.test(String(p.text || '').trim()));
+  const klasseName = k => k === 'gdt' ? 'GD&T' : k === 'pruef' ? 'Prüfmaß' : k === 'abstand' ? 'Abstand' : 'Maß';
+  for (const d of dims || []) {
+    const klasse = dimKlasse(d);
+    const blob = `${d.text || ''} ${d.hinweis || ''}`;
+    const art = /theoret/i.test(blob) ? 'theoretisch' : klasse === 'pruef' ? 'Prüfmaß' : klasse === 'gdt' ? 'GD&T' : 'Maß';
+    let nr = d.id || String(rows.length + 1);
+    if (d.anker && balloons.length) {
+      const hit = balloons.find(b => Math.hypot((b.x || 0) - (d.anker.x || 0), (b.y || 0) - (d.anker.y || 0)) < 18);
+      if (hit) nr = hit.text.trim();
+    }
+    rows.push({ nr, merkmal: d.text || d.typ || '', nennmass: d.wert, toleranz: tolText(d), klasse: klasseName(klasse), art, quelle: d.id || '' });
+    seen.add(d.text);
+  }
+  for (const ph of phrases || []) {
+    const t = String(ph.text || '').trim();
+    if (!/[ØøR±°]|\d+\s*[x×]|prüf|pruef|theoret/i.test(t)) continue;
+    if (seen.has(t)) continue;
+    const specs = parsePhrase(t);
+    if (!specs.length) continue;
+    for (const s of specs) {
+      const klasse = dimKlasse({ ...s, text: t });
+      rows.push({
+        nr: String(rows.length + 1), merkmal: t, nennmass: s.wert, toleranz: tolText(s),
+        klasse: klasseName(klasse), art: /theoret/i.test(t) ? 'theoretisch' : klasse === 'pruef' ? 'Prüfmaß' : 'Maß',
+        quelle: 'Text',
+      });
+    }
+    seen.add(t);
+  }
+  return rows;
+}
+
 export function dimKlasse(d) {
   if (!d) return 'mass';
   const blob = `${d.text || ''} ${d.hinweis || ''} ${d.quelle || ''} ${d.name || ''}`;
@@ -56,11 +104,11 @@ const AX_I = { X: 0, Y: 1, Z: 2 };
 const r3 = v => v.map(x => Math.round(x * 1000) / 1000);
 
 /** Maßlinie eines Abstands: verbindet die beiden Ebenen und liegt knapp außerhalb der Hüllbox. */
-export function masslinieAbstand(achse, m0, m1, lo, hi) {
+export function masslinieAbstand(achse, m0, m1, lo, hi, lane = 0) {
   const ax = AX_I[achse];
   if (ax == null || !lo || !hi || m0 == null || m1 == null) return null;
   const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
-  const gap = Math.max(1.5, diag * 0.06);
+  const gap = Math.max(1.5, diag * 0.07) * (1 + Math.max(0, lane || 0));
   const off = ax === 2 ? 0 : 2;
   const a = Math.min(+m0, +m1), b = Math.max(+m0, +m1);
   const mid = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];

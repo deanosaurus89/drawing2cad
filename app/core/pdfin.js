@@ -11,6 +11,28 @@ const OPS = { setLineWidth: 2, setDash: 6, save: 10, restore: 11, transform: 12,
 const mmul = (m, n) => [m[0] * n[0] + m[1] * n[2], m[0] * n[1] + m[1] * n[3], m[2] * n[0] + m[3] * n[2], m[2] * n[1] + m[3] * n[3],
   m[4] * n[0] + m[5] * n[2] + n[4], m[4] * n[1] + m[5] * n[3] + n[5]];
 
+/**
+ * Schwelle für Körperkanten. Einzelne sehr dicke Striche (Pfeile, Marken) dürfen
+ * die häufige 0,35-mm-Volllinie nicht zur „dünnen“ Linie machen.
+ */
+export function lineWeightPlan(widths) {
+  const list = (widths || []).filter(w => w > 0);
+  if (!list.length) return { thr: 0.5, wmax: 0, isThick: () => false };
+  const bands = [];
+  for (const w of list.slice().sort((a, b) => a - b)) {
+    let b = bands.find(x => Math.abs(x.rep - w) <= Math.max(0.05, 0.18 * Math.max(x.rep, w)));
+    if (!b) bands.push(b = { rep: w, n: 0, sum: 0 });
+    b.sum += w; b.n++; b.rep = b.sum / b.n;
+  }
+  const total = list.length;
+  const sig = bands.filter(b => b.n >= 4 && b.n / total >= 0.03);
+  const use = (sig.length ? sig : bands).slice().sort((a, b) => b.rep - a.rep);
+  const wmax = use[0].rep;
+  let thr = wmax >= 0.55 ? Math.max(0.55, 0.8 * wmax) : 0.8 * wmax;
+  if (use.length >= 2 && wmax < 0.55) thr = (use[0].rep + use[1].rep) / 2;
+  return { thr, wmax, isThick: w => w >= thr - 1e-6 };
+}
+
 /** Zeichenpfade aus der Operatorliste (wie PyMuPDF get_drawings). */
 export function extractDrawings(ol) {
   const out = []; let images = 0;
@@ -92,8 +114,9 @@ export function readPdfVector(ex, tcRes, pageW, pageH) {
   if (!stroked.length) throw new ReconError('Keine Vektorgeometrie gefunden.');
   const isDashed = d => d.dash && d.dash.length > 0 && d.dash.some(x => x > 0);
   const widths = stroked.filter(d => !isDashed(d)).map(d => d.width);
-  const wmax = widths.length ? Math.max(...widths) : 0;
-  const thr = wmax >= 0.55 ? Math.max(0.55, 0.8 * wmax) : 0.8 * wmax;
+  const plan = lineWeightPlan(widths);
+  const wmax = plan.wmax;
+  const thr = plan.thr;
   const msgs = [];
   if (wmax < 0.55) msgs.push('Hinweis: Keine breiten Linien (≥0,5 mm) gefunden – Linienarten werden nur relativ unterschieden.');
   const pw = pageW * PT, ph = pageH * PT;

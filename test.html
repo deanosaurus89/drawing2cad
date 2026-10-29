@@ -38,6 +38,15 @@
 const K = 'd2c-testliste';
 const L = { ok: '✅', warn: '⚠️', fail: '❌', skip: '⏸' };
 const GROUPS = [
+  { version: '2026.0.4', title: 'Trainingsblätter, Ansichten, Prüfmerkmale', items: [
+    { id: 'T1', t: 'Trainingspaar laden', steps: 'Beispielmenü, Gruppe Trainingspaare, „03 Verbindung“.', exp: 'Die Zeichnung erscheint. Es gibt keine Meldung, das Blatt habe keine Ansichten. Die Liste zeigt Hauptansicht, abgeleitete Ansicht und Isometrie. Isometrie ist nicht angehakt.' },
+    { id: 'T2', t: 'Bestätigen und 3D', steps: 'Rollen prüfen. Bei einer Welle „Drehen“ und die Achse. „3D erzeugen“.', exp: 'Es entsteht ein Volumen oder eine klare Fehlermeldung zur Kontur. Sicherheit steht über der Liste. Ein Klick genügt, wenn die Rollen schon stimmen.' },
+    { id: 'T3', t: 'Bögen fitten', steps: 'Bei vielen kurzen Linien „Bögen fitten“ oder die Lücke etwas erhöhen, Haken „Kontur schließen“ nur wenn eine Lücke sichtbar ist.', exp: 'Die Meldung nennt Geraden, Kreisbögen oder Kreise. Die Ansichtsrahmen bleiben.' },
+    { id: 'T4', t: 'Prüfmerkmale', steps: 'Reiter Maße, Tabelle Prüfmerkmale, an einem bekannten Beispiel und an einem Trainingsblatt.', exp: 'Nennmaß, Toleranz, Klasse (Maß, Abstand, GD&T oder Prüfmaß) und Art. Leere Tabelle nur, wenn kein Maßtext da ist.' },
+    { id: 'T5', t: 'Neues Projekt', steps: 'Nach einem Modell „Neues Projekt“.', exp: '3D, Stack, PMI, Maßtabelle, Prüfmerkmale, Meldungen und die geladene Datei sind leer. Das Beispielmenü bleibt und lädt danach wieder.' },
+    { id: 'T6', t: 'PMI-Lage', steps: 'Flansch, Reiter 3D, PMI an. Mehrere Abstände und Durchmesser.', exp: 'Maßlinien liegen außerhalb und nicht alle auf derselben Bahn. Texte überlappen sich nicht dauerhaft. Der Anker bleibt an der Bezugsfläche.' },
+    { id: 'T7', t: 'Bisherige Beispiele', steps: 'Flansch (Vektor-PDF) und Buchse laden, ohne die Ansichten umzustellen.', exp: 'Beide bauen wie bisher von selbst. Volumen und Feature-Stack der Buchse bleiben nutzbar.' },
+  ]},
   { version: '2026.0.3', title: 'Feature-Stack und PMI', items: [
     { id: 'N3', t: 'Testliste schließen', steps: '„Testliste“ antippen (neuer Tab). Zusätzlich die Liste im gleichen Tab öffnen: Leiste „Schließen“ und „← Zurück zur App“, dann Esc.', exp: 'Der Link bleibt target=_blank. Im neuen Tab bleibt die App offen. Im gleichen Tab führt Schließen zurück (sonst index.html). Esc macht dasselbe. Die Leiste bleibt beim Scrollen stehen und ist groß genug zum Tippen.' },
     { id: 'F1', t: 'Stack auf der Buchse', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“. Reiter Zeichnung, Block Feature-Stack.', exp: 'Schritte: Blatt, Basis Drehen, Gegenhälfte oder Hinweis, Einzelheit Z, Fase. Status „Vorschlag“. Sicherheit gesamt mit kurzer Begründung. Freiform ist nicht als Volumen vorgeschlagen.' },

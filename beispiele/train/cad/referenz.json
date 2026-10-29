@@ -1,0 +1,134 @@
+{
+  "einheit": "mm",
+  "hinweis": "Soll aus STEP (OpenCascade, vendor/). Achslage kann von der Rekonstruktion abweichen, deshalb bbox_sortiert_mm. 05_lochverbund.igs: IGES von PolyWorks, in diesem Browser-Kern nicht lesbar. Freiform, nicht als Volumen-Soll verwenden.",
+  "teile": [
+    {
+      "datei": "01_welle.stp",
+      "einheit": "mm",
+      "volumen_mm3": 263893.8,
+      "bbox_mm": [
+        60,
+        160,
+        60
+      ],
+      "bbox_sortiert_mm": [
+        60,
+        60,
+        160
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "02_winkel.stp",
+      "einheit": "mm",
+      "volumen_mm3": 59505.6,
+      "bbox_mm": [
+        20,
+        130,
+        70
+      ],
+      "bbox_sortiert_mm": [
+        20,
+        70,
+        130
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "03_verbindung.stp",
+      "einheit": "mm",
+      "volumen_mm3": 346924.4,
+      "bbox_mm": [
+        40,
+        190,
+        80
+      ],
+      "bbox_sortiert_mm": [
+        40,
+        80,
+        190
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "04_stempel.stp",
+      "einheit": "mm",
+      "volumen_mm3": 206154.8,
+      "bbox_mm": [
+        120,
+        80,
+        80
+      ],
+      "bbox_sortiert_mm": [
+        80,
+        80,
+        120
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "06_nutwelle.stp",
+      "einheit": "mm",
+      "volumen_mm3": 312153.7,
+      "bbox_mm": [
+        180,
+        60,
+        60
+      ],
+      "bbox_sortiert_mm": [
+        60,
+        60,
+        180
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "07_hebel.stp",
+      "einheit": "mm",
+      "volumen_mm3": 86283.3,
+      "bbox_mm": [
+        188.9,
+        77.8,
+        46.5
+      ],
+      "bbox_sortiert_mm": [
+        46.5,
+        77.8,
+        188.9
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "08_flansch.stp",
+      "einheit": "mm",
+      "volumen_mm3": 586603.4,
+      "bbox_mm": [
+        120,
+        160,
+        160
+      ],
+      "bbox_sortiert_mm": [
+        120,
+        160,
+        160
+      ],
+      "art": "volumen"
+    },
+    {
+      "datei": "08_flansch2.stp",
+      "einheit": "mm",
+      "volumen_mm3": 488788.8,
+      "bbox_mm": [
+        85,
+        160,
+        160
+      ],
+      "bbox_sortiert_mm": [
+        85,
+        160,
+        160
+      ],
+      "art": "volumen"
+    }
+  ]
+}

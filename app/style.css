@@ -53,6 +53,20 @@ h2 small{font-weight:normal;color:#667}
 #vorschau .box.detailkreis span{background:#8e44ad}
 #vorschau .box.schnittverlauf{border:none;border-top:3px dashed #c0392b;min-height:2px}
 #vorschau .box.schnittverlauf span{background:#c0392b}
+#vorschau .box.isometrie{border-color:#8a6a12;border-style:dotted}
+#vorschau .box.isometrie span{background:#8a6a12}
+#vorschau .box.schriftfeld{border-color:#90a0b0}
+#vorschau .box.schriftfeld span{background:#607080}
+#ansicht-panel{margin-top:10px;padding:8px;border:1px solid #d9e0e8;border-radius:8px;background:#f8fafc}
+#ansicht-panel h2{margin-top:0}
+#av-liste{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.av-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.av-row select{max-width:100%;min-width:160px}
+#ansicht-panel label{display:flex;flex-direction:column;gap:4px;font-size:13px;margin:8px 0}
+#av-achse,#av-luecke{min-height:44px;width:100%;max-width:220px;font:inherit;padding:0 8px;border:1px solid #9fb0c5;border-radius:8px}
+.stack-conf.hoch{color:#1b5e20}
+.stack-conf.mittel{color:#8a5a00}
+.stack-conf.niedrig{color:#8a1c1c}
 #vorschau .box span{position:absolute;top:-1.4em;left:0;font-size:11px;background:#2f6fd0;color:#fff;padding:0 4px;border-radius:3px;white-space:nowrap}
 #meldungen div{font-size:13px;padding:6px 8px;margin:6px 0;border-radius:6px;background:#eef3fa}
 #meldungen .fehler{background:#fde8e8;color:#8a1c1c}

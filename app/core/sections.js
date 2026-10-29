@@ -32,7 +32,7 @@ export function parseLabels(phrases) {
   for (const ph of phrases) {
     const t = ph.text.trim().replace(/[–—]/g, '-');
     let m;
-    if ((m = t.match(/^(?:Schnitt\s*)?([A-Z])\s*-\s*([A-Z])$/)) && m[1] === m[2]) sec.push({ letter: m[1], at: [ph.x, ph.y], ph });
+    if ((m = t.match(/Schnitt(?:ansicht)?\s*([A-Z])\s*-\s*\1/i)) || ((m = t.match(/^(?:Schnitt\s*)?([A-Z])\s*-\s*([A-Z])$/)) && m[1] === m[2])) sec.push({ letter: m[1].toUpperCase(), at: [ph.x, ph.y], ph });
     else if ((m = t.match(/^(?:Einzelheit|Detail)?\s*([A-Z])\s*\(\s*(\d+(?:[.,]\d+)?)\s*:\s*(\d+(?:[.,]\d+)?)\s*\)$/))) det.push({ letter: m[1], k: parseFloat(m[2].replace(',', '.')) / parseFloat(m[3].replace(',', '.')), at: [ph.x, ph.y], ph });
     else if ((m = t.match(/^(?:Einzelheit|Detail)\s+([A-Z])$/))) det.push({ letter: m[1], k: null, at: [ph.x, ph.y], ph });
     else if ((m = t.match(/^([A-Z])$/))) letters.push({ letter: m[1], at: [ph.x, ph.y], ph });

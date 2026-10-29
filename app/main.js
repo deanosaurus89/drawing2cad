@@ -4,7 +4,9 @@ import { ocrPasses } from './core/ocr.js';
 import { Viewer, TYPE_COLORS, TYPE_NAMES } from './viewer.js';
 import { createSectionUI } from './sectionui.js';
 import { createStackUI } from './stackui.js';
-import { dimKlasse } from './core/dims.js';
+import { dimKlasse, pruefmerkmale } from './core/dims.js';
+import { analyseBlatt } from './core/recon.js';
+import { createViewUI } from './viewui.js';
 import { BUILD, showWhatsNew, maybeShowWhatsNew, versionText } from './changelog.js';
 
 const BASE = new URL('../', import.meta.url).href;
@@ -19,6 +21,16 @@ const BEISPIELE = [
   ['real/xometry_lathe_sample.webp', 'Reale Zeichnung: Drehteil (WEBP, 90 dpi)'],
   ['real/drehteil_rillen_4zu1.jpg', 'Reale Zeichnung: Drehteil mit Rillen, Schnitt, 4:1 (JPG)'],
   ['real/platte_schraege_1zu2.jpg', 'Reale Zeichnung: Platte mit Kegelloch, 1:2 (JPG)'],
+];
+const TRAINING = [
+  ['train/01_welle.pdf', 'Training: 01 Welle (PDF)'],
+  ['train/02_winkel.pdf', 'Training: 02 Winkel (PDF)'],
+  ['train/03_verbindung.pdf', 'Training: 03 Verbindung (PDF)'],
+  ['train/04_stempel.pdf', 'Training: 04 Stempel (PDF)'],
+  ['train/05_lochverbund.pdf', 'Training: 05 Lochverbund (PDF)'],
+  ['train/06_nutwelle.pdf', 'Training: 06 Nutwelle (PDF)'],
+  ['train/07_hebel.pdf', 'Training: 07 Hebel (PDF)'],
+  ['train/08_flansch.jpg', 'Training: 08 Flansch, Maximum-Material (JPG)'],
 ];
 
 const state = { busy: false, result: null, file: null, preview: null, edits: {}, msgs: [], auto: null };
@@ -76,7 +88,7 @@ viewer.onPmiClick = it => { viewer.selectSids(it.bezuege.flatMap(b => b.flaechen
 
 // ---------------------------------------------------------------- Laden
 async function ladeDatei(file, alt = false, dpi = null) {
-  if (state.busy) return; busy(true);
+  if (state.busy) return; busy(true); state.wartet = false;
   state.file = file; state.edits = {}; $('#meldungen').innerHTML = '';
   const t0 = performance.now();
   try {
@@ -85,6 +97,23 @@ async function ladeDatei(file, alt = false, dpi = null) {
     showPreview(inp.preview);
     if (inp.msg) msg(inp.msg);
     await readyP;
+    if (inp.kind === 'vector') {
+      status('Ansichten erkennen …');
+      state.vectorInp = { ex: inp.ex, tc: inp.tc, w: inp.w, h: inp.h };
+      const a = analyseBlatt(inp.ex, inp.tc, inp.w, inp.h);
+      state.analyse = a;
+      viewUi.show(a);
+      fillPruef(pruefmerkmale([], a.dr && a.dr.phrases));
+      if (!a.auto) {
+        msg(a.grund);
+        status(a.grund);
+        state.wartet = true;
+        window.__ready = 'ansichten';
+        busy(false);
+        tab('zeichnung');
+        return;
+      }
+    } else { state.vectorInp = null; viewUi.reset(); }
     let r;
     if (inp.kind === 'vector') r = await call({ type: 'vector', ex: inp.ex, tc: inp.tc, w: inp.w, h: inp.h });
     else r = await rasterRun(inp);
@@ -185,6 +214,7 @@ function zeige(r, name, ms, opts = {}) {
     $('#pmi').appendChild(li);
   }
   applyPmiFilter(state.pmiFilter || 'alle');
+  fillPruef(pruefmerkmale(res.masse, (state.analyse && state.analyse.dr && state.analyse.dr.phrases) || []));
   try { sectionUi && sectionUi.onResult(res, opts); } catch (e) { console.warn(e); }
   try { stackUi && stackUi.onResult(res, opts); } catch (e) { console.warn(e); }
   status(`Fertig: ${res.flaechen.length} Flächen, ${fmt(res.volumen_mm3, 1)} mm³ (${(ms / 1000).toFixed(1)} s)`);
@@ -234,20 +264,28 @@ $('#x-step').onclick = async () => {
 };
 $('#x-stl').onclick = async () => { busy(true); try { const r = await call({ type: 'export', format: 'stl' }); download(r.blob, stem() + '.stl'); status('STL exportiert.'); } catch (e) { fehler(e); } finally { busy(false); } };
 $('#x-pmi').onclick = () => {
-  const r = state.result; const out = { quelle: stem(), einheit: 'mm', volumen_mm3: r.volumen_mm3, flaechen: r.flaechen.map(({ p, tri, ...f }) => f), pmi: r.pmi };
+  const r = state.result; const out = { quelle: stem(), einheit: 'mm', volumen_mm3: r.volumen_mm3, bbox_mm: r.bbox, flaechen: r.flaechen.map(({ p, tri, ...f }) => f), pmi: r.pmi };
   download(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), stem() + '_pmi.json'); status('PMI als JSON exportiert.');
 };
 
 // ---------------------------------------------------------------- Eingaben
 for (const s of ['#datei', '#kamera']) $(s).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) { lastRaster = !/\.pdf$/i.test(f.name); ladeDatei(f); } });
-for (const [f, n] of BEISPIELE) { const o = document.createElement('option'); o.value = f; o.textContent = n; $('#beispiel').appendChild(o); }
+function optgruppe(label, eintraege) {
+  const g = document.createElement('optgroup');
+  g.label = label;
+  for (const [f, n] of eintraege) { const o = document.createElement('option'); o.value = f; o.textContent = n; g.appendChild(o); }
+  $('#beispiel').appendChild(g);
+}
+optgruppe('Beispiele', BEISPIELE);
+optgruppe('Trainingspaare', TRAINING);
 $('#beispiel').onchange = e => { const f = e.target.value; if (f) ladeBeispiel(f); };
 async function ladeBeispiel(f) {
   window.__ready = false; status('Lade Beispiel …');
   const r = await fetch(BASE + 'beispiele/' + f); if (!r.ok) { fehler(new Error('Beispiel nicht gefunden: ' + f)); return; }
-  const file = new File([await r.blob()], f); lastRaster = f.startsWith('r');
+  const file = new File([await r.blob()], f); lastRaster = /(?:^|\/)r\d/i.test(f) || !/\.pdf$/i.test(f);
   $('#beispiel').value = f;
   await ladeDatei(file);
+  if (state.wartet) return;
   if (!state.ok) window.__ready = 'fehler';
 }
 // Test-Hooks
@@ -259,6 +297,41 @@ window.__viewer = viewer;
 window.__cubePunkt = d => viewer.cubeScreen(d);
 
 sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, esc, zeige, fehler });
+function fillPruef(rows) {
+  const tb = $('#pruef tbody'); if (!tb) return;
+  tb.innerHTML = '';
+  const hint = $('#pruef-hinweis');
+  const list = rows || [];
+  if (hint) { hint.hidden = list.length > 0; if (!list.length) hint.textContent = 'Keine Prüfmerkmale erkannt.'; }
+  for (const r of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(r.nr)}</td><td>${esc(r.merkmal)}</td><td>${esc(fmt(r.nennmass, 3))}</td><td>${esc(r.toleranz || '–')}</td><td>${esc(r.klasse)}</td><td>${esc(r.art)}</td>`;
+    tb.appendChild(tr);
+  }
+}
+async function baueHinweis(h) {
+  if (!state.vectorInp || state.busy) return;
+  busy(true); window.__ready = false; $('#meldungen').innerHTML = '';
+  const t0 = performance.now();
+  try {
+    const a = analyseBlatt(state.vectorInp.ex, state.vectorInp.tc, state.vectorInp.w, state.vectorInp.h, h);
+    state.analyse = a;
+    viewUi.show(a);
+    await readyP;
+    const r = await call({ type: 'vector', ...state.vectorInp, hinweis: h });
+    zeige(r, state.file ? state.file.name : '', performance.now() - t0);
+  } catch (e) { fehler(e); window.__ready = true; }
+  finally { busy(false); }
+}
+let viewUi;
+viewUi = createViewUI({ $, bauen: h => baueHinweis(h), erneut: h => {
+  if (!state.vectorInp) return;
+  const a = analyseBlatt(state.vectorInp.ex, state.vectorInp.tc, state.vectorInp.w, state.vectorInp.h, h);
+  state.analyse = a;
+  viewUi.show(a);
+  fillPruef(pruefmerkmale([], a.dr && a.dr.phrases));
+  status(a.grund);
+} });
 let stackUi;
 function applyPmiFilter(k) {
   state.pmiFilter = k || 'alle';
@@ -279,6 +352,30 @@ window.__stackSchritte = () => stackUi.steps();
 window.__schnittKandidaten = () => sectionUi.candidates();
 window.__schnittWahl = id => sectionUi.selectId(id);
 window.__schnittModell = id => sectionUi.build(id);
+
+function neuesProjekt() {
+  state.result = null; state.file = null; state.preview = null; state.edits = {}; state.auto = null; state.ok = false;
+  state.analyse = null; state.vectorInp = null; window.__ready = false;
+  viewer.clear(); viewer.onPick(null);
+  $('#meldungen').innerHTML = '';
+  $('#vorschau').innerHTML = '<p class="leer">Noch keine Zeichnung. PDF (Vektor oder Scan), PNG, JPG oder TIFF wählen – oder ein Beispiel.</p>';
+  $('#masse tbody').innerHTML = '';
+  $('#pmi').innerHTML = '';
+  $('#info').innerHTML = '<p class="leer">–</p>';
+  const aus = $('#auswahl'); if (aus) aus.hidden = true;
+  $('#beispiel').value = '';
+  $('#datei').value = '';
+  $('#kamera').value = '';
+  fillPruef([]);
+  const hint = $('#pruef-hinweis'); if (hint) { hint.hidden = false; hint.textContent = 'Noch keine Merkmale. Nach dem Laden stehen hier Nennmaß, Toleranz, GD&T und Prüfmaß.'; }
+  if (sectionUi && sectionUi.reset) sectionUi.reset();
+  if (stackUi && stackUi.reset) stackUi.reset();
+  if (viewUi) viewUi.reset();
+  for (const s of ['#neu', '#x-step', '#x-stl', '#x-pmi', '#zurueck']) { const el = $(s); if (el) el.disabled = true; }
+  status('Neues Projekt. Beispiel wählen oder eine Datei laden.');
+  tab('zeichnung');
+}
+$('#btn-neues-projekt').onclick = neuesProjekt;
 
 $('#app-version').textContent = BUILD.version;
 $('#app-version').title = versionText();
