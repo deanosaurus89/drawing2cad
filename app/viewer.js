@@ -1,6 +1,8 @@
 // 3D-Ansicht: three.js, OrbitControls (Maus + Touch), ViewCube, Flächen/Kanten-Auswahl, PMI-Beschriftungen.
 import * as THREE from '../vendor/three.module.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
+import { KLASSE } from './core/dims.js';
+import { formatPmi, staggerBoxes, pmiDetail } from './core/pmilayout.js';
 
 export const TYPE_COLORS = { plane: 0xaab4c3, cylinder: 0x4f8fd6, cone: 0xe9a23b, torus: 0x5cb85c, sphere: 0xd65db1, bspline: 0x9b6fd6, extrusion: 0x8a7bd8, revolution: 0x60b0a8, other: 0x999999 };
 export const TYPE_NAMES = { plane: 'Ebene', cylinder: 'Zylinder', cone: 'Kegel', torus: 'Torus', sphere: 'Kugel', bspline: 'B-Spline', extrusion: 'Extrusionsfl.', revolution: 'Rotationsfl.', other: 'sonstige' };
@@ -29,6 +31,7 @@ export class Viewer {
     this.selGroup = new THREE.Group(); this.scene.add(this.selGroup);
     this.ray = new THREE.Raycaster();
     this.opts = { colors: true, edges: true, pmi: true };
+    this.pmiFilter = 'alle'; this.pmiHover = null; this.fitDist = 0;
     this.onPick = () => {}; this.onPmiClick = () => {};
     this.anim = null; this.dirty = true;
     this.initCube(cubeEl);
@@ -77,13 +80,13 @@ export class Viewer {
   faceColor(f) { return this.opts.colors ? (TYPE_COLORS[f.typ_en] ?? TYPE_COLORS.other) : 0xb8c2cf; }
   clear() {
     for (const grp of [this.group, this.pmiGroup, this.selGroup]) while (grp.children.length) { const o = grp.children.pop(); o.geometry && o.geometry.dispose(); const m = o.material; (Array.isArray(m) ? m : [m]).forEach(x => x && x.dispose && x.dispose()); }
-    this.labelEl.innerHTML = ''; this.labels = []; this.mesh = null; this.sel = null;
+    this.labelEl.innerHTML = ''; this.labels = []; this.leaderSvg = null; this.mesh = null; this.sel = null; this.pmiHover = null;
   }
   setOption(k, v) {
     this.opts[k] = v;
     if (k === 'edges' && this.edgeObj) this.edgeObj.visible = v;
     if (k === 'colors' && this.faceMats) this.restyle();
-    if (k === 'pmi') { this.pmiGroup.visible = v; this.labelEl.style.display = v ? '' : 'none'; }
+    if (k === 'pmi') { this.pmiGroup.visible = v; this.labelEl.style.display = v ? '' : 'none'; this.stylePmiLines(); }
     this.dirty = true;
   }
   restyle(highlight = new Set()) {
@@ -100,6 +103,7 @@ export class Viewer {
   fitAll(animate = true) {
     if (!this.bs) return;
     const dir = this.camera.position.clone().sub(this.controls.target); if (dir.lengthSq() < 1e-9) dir.set(1, -1.4, 1);
+    this._setFit = true;
     this.flyTo(dir.normalize(), animate);
   }
   flyTo(dir, animate = true) {
@@ -108,6 +112,7 @@ export class Viewer {
     if (Math.abs(d.z) > 0.999) { d.y -= 0.002; d.normalize(); } // Draufsicht: Pol vermeiden
     const r = this.bs.radius; const fov = this.camera.fov * Math.PI / 180;
     const dist = r / Math.sin(Math.min(fov, fov * this.camera.aspect) / 2) * 1.08;
+    if (this._setFit || !this.fitDist) { this.fitDist = dist; this._setFit = false; }
     const target = this.bs.center.clone(); const pos = target.clone().add(d.multiplyScalar(dist));
     this.camera.near = dist / 100; this.camera.far = dist * 100; this.camera.updateProjectionMatrix();
     if (!animate) { this.controls.target.copy(target); this.camera.position.copy(pos); this.controls.update(); this.dirty = true; return; }
@@ -169,6 +174,11 @@ export class Viewer {
       if (!down) return; const moved = Math.hypot(ev.clientX - down[0], ev.clientY - down[1]); const dt = performance.now() - down[2]; down = null;
       if (moved > 6 || dt > 600) return; this.pickAt(ev.clientX, ev.clientY);
     });
+    el.addEventListener('pointermove', ev => {
+      if (down) return;
+      const id = this.pickPmiId(ev.clientX, ev.clientY);
+      if (id !== this.pmiHover) { this.pmiHover = id; this.stylePmiLines(); this.highlightLabel(this.sel && this.sel.kind === 'pmi' ? this.sel.id : null); this.dirty = true; }
+    });
   }
   pickAt(cx, cy) {
     if (!this.mesh) return;
@@ -178,6 +188,8 @@ export class Viewer {
     const dist = this.camera.position.distanceTo(this.controls.target);
     this.ray.params.Line.threshold = dist * 0.012 * (matchMedia('(pointer: coarse)').matches ? 2 : 1);
     const hf = this.ray.intersectObject(this.mesh)[0];
+    const hp = this.opts.pmi ? this.ray.intersectObjects(this.pmiPick || []).filter(h => !hf || h.distance < hf.distance + dist * 0.02)[0] : null;
+    if (hp && hp.object.userData.pmi) { const it = (this.labels || []).find(l => l.it.id === hp.object.userData.pmi); if (it) return this.onPmiClick(it.it); }
     const he = this.opts.edges ? this.ray.intersectObjects(this.edgePick).filter(h => !hf || h.distance < hf.distance + dist * 0.01)[0] : null;
     if (he) return this.select({ kind: 'kante', index: he.object.userData.edge, point: he.point });
     if (hf) { const gi = this.groups.findIndex(g => hf.faceIndex * 3 >= g.start && hf.faceIndex * 3 < g.start + g.count); return this.select({ kind: 'flaeche', index: gi, point: hf.point }); }
@@ -192,7 +204,7 @@ export class Viewer {
       const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xff3b30, depthTest: false })); l.renderOrder = 10; this.selGroup.add(l);
     }
     if (s && s.kind === 'pmi') hl = new Set(s.faces);
-    this.restyle(hl); this.highlightLabel(s && s.kind === 'pmi' ? s.id : null);
+    this.restyle(hl); this.highlightLabel(s && s.kind === 'pmi' ? s.id : null); this.stylePmiLines();
     this.onPick(s);
   }
   selectSids(sids, id) { this.select({ kind: 'pmi', id, faces: sids.map(x => this.sidIndex.get(x)).filter(x => x != null) }); }
@@ -200,31 +212,146 @@ export class Viewer {
   // ---------------------------------------------------------- PMI
   buildPmi(items) {
     this.labels = [];
-    const pos = []; const mat = new THREE.LineBasicMaterial({ color: 0xb8860b });
+    this.pmiPick = [];
+    this.pmiHover = null;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'pmi-leader');
+    this.labelEl.appendChild(svg);
+    this.leaderSvg = svg;
+    const diag = this.result && this.result.bbox ? Math.hypot(...this.result.bbox) : 40;
     for (const it of items) {
-      pos.push(...it.anker_3d, ...it.label_3d);
-      const div = document.createElement('div'); div.className = 'pmilabel'; div.dataset.id = it.id;
-      const tol = it.passung ? ` ${it.passung}` : (it.tol_oben != null && it.tol_unten != null ? (Math.abs(it.tol_oben + it.tol_unten) < 1e-9 ? ` ±${fmt(it.tol_oben)}` : ` ${sgn(it.tol_oben)}/${sgn(it.tol_unten)}`) : '');
-      const pre = it.typ === 'Durchmesser' || it.typ.startsWith('Teilkreis') ? 'Ø' : it.typ === 'Radius' ? 'R' : it.typ === 'Fase' ? '⦣' : '';
-      div.textContent = `${pre}${fmt(it.nennmass)}${tol}${it.einheit === '°' ? '°' : ''}`;
+      const klasse = it.klasse && KLASSE[it.klasse] ? it.klasse : 'mass';
+      const color = KLASSE[klasse].hex;
+      const anchor = this.displayAnchor(it);
+      const seg = this.pmiSegments(it, diag);
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.82, depthTest: false });
+      const group = new THREE.Group();
+      if (seg.length >= 6) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+        const line = new THREE.LineSegments(g, mat);
+        line.userData.pmi = it.id;
+        line.renderOrder = 4;
+        group.add(line);
+        this.pmiPick.push(line);
+      }
+      this.pmiGroup.add(group);
+      const div = document.createElement('div');
+      div.className = 'pmilabel k-' + klasse;
+      div.dataset.id = it.id;
+      const info = KLASSE[klasse];
+      div.style.background = info.flaeche;
+      div.style.borderColor = info.farbe;
+      div.style.color = info.farbe;
       div.title = `${it.id} · ${it.typ} · ${it.text}`;
+      div.textContent = formatPmi(it, false);
       div.addEventListener('click', e => { e.stopPropagation(); this.onPmiClick(it); });
+      div.addEventListener('pointerenter', () => { this.pmiHover = it.id; this.stylePmiLines(); this.highlightLabel(this.sel && this.sel.kind === 'pmi' ? this.sel.id : null); this.dirty = true; });
+      div.addEventListener('pointerleave', () => { if (this.pmiHover === it.id) { this.pmiHover = null; this.stylePmiLines(); this.highlightLabel(this.sel && this.sel.kind === 'pmi' ? this.sel.id : null); this.dirty = true; } });
       this.labelEl.appendChild(div);
-      this.labels.push({ it, div, p: new THREE.Vector3(...it.label_3d) });
+      this.labels.push({ it, div, p: new THREE.Vector3(...anchor), mat, group, klasse, color, hidden: false });
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    this.pmiGroup.add(new THREE.LineSegments(g, mat));
+    this.setPmiFilter(this.pmiFilter);
   }
-  highlightLabel(id) { for (const l of this.labels || []) l.div.classList.toggle('aktiv', l.it.id === id); }
+  displayAnchor(it) {
+    if (it.masslinie && it.masslinie.length === 2) {
+      const a = it.masslinie[0], b = it.masslinie[1];
+      return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    }
+    const a = it.anker_3d, b = it.label_3d;
+    if (a && b) return a.map((v, i) => v + (b[i] - v) * 0.55);
+    return b || a || [0, 0, 0];
+  }
+  pmiSegments(it, diag) {
+    const seg = [];
+    const push = (a, b) => { if (a && b) seg.push(a[0], a[1], a[2], b[0], b[1], b[2]); };
+    if (it.masslinie && it.masslinie.length === 2) {
+      const a = it.masslinie[0], b = it.masslinie[1];
+      push(a, b);
+      for (const h of it.hilfslinien || []) push(h[0], h[1]);
+      const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const dir = [dx / len, dy / len, dz / len];
+      let up = [0, 0, 1];
+      if (Math.abs(dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2]) > 0.9) up = [0, 1, 0];
+      const side = [
+        dir[1] * up[2] - dir[2] * up[1],
+        dir[2] * up[0] - dir[0] * up[2],
+        dir[0] * up[1] - dir[1] * up[0],
+      ];
+      const sl = Math.hypot(...side) || 1;
+      side[0] /= sl; side[1] /= sl; side[2] /= sl;
+      const ah = Math.max(0.6, Math.min(len * 0.16, (diag || 40) * 0.03));
+      for (const tip of [a, b]) {
+        const inward = tip === a ? 1 : -1;
+        const back = tip.map((v, i) => v + inward * dir[i] * ah);
+        const l = back.map((v, i) => v + side[i] * ah * 0.38);
+        const r = back.map((v, i) => v - side[i] * ah * 0.38);
+        push(tip, l); push(tip, r);
+      }
+    } else if (it.anker_3d && it.label_3d) push(it.anker_3d, it.label_3d);
+    return seg;
+  }
+  pickPmiId(cx, cy) {
+    if (!this.pmiPick || !this.pmiPick.length || !this.opts.pmi) return null;
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const v = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(v, this.camera);
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    this.ray.params.Line.threshold = dist * 0.02;
+    const h = this.ray.intersectObjects(this.pmiPick)[0];
+    return h && h.object.userData.pmi ? h.object.userData.pmi : null;
+  }
+  stylePmiLines() {
+    const sel = this.sel && this.sel.kind === 'pmi' ? this.sel.id : null;
+    for (const l of this.labels || []) {
+      if (!l.mat) continue;
+      l.group.visible = !!this.opts.pmi && !l.hidden;
+      if (l.it.id === sel) { l.mat.color.setHex(0xff3b30); l.mat.opacity = 1; }
+      else if (l.it.id === this.pmiHover) { l.mat.color.setHex(l.color); l.mat.opacity = 0.4; }
+      else { l.mat.color.setHex(l.color); l.mat.opacity = 0.9; }
+    }
+    this.dirty = true;
+  }
+  setPmiFilter(k) {
+    this.pmiFilter = k || 'alle';
+    for (const l of this.labels || []) l.hidden = this.pmiFilter !== 'alle' && l.klasse !== this.pmiFilter;
+    this.stylePmiLines();
+    this.placeLabels();
+  }
+  highlightLabel(id) {
+    for (const l of this.labels || []) {
+      l.div.classList.toggle('aktiv', l.it.id === id);
+      l.div.classList.toggle('hover', l.it.id === this.pmiHover && l.it.id !== id);
+    }
+  }
   placeLabels() {
     if (!this.labels || !this.opts.pmi) return;
     const w = this.el.clientWidth, h = this.el.clientHeight; const v = new THREE.Vector3();
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    const detail = pmiDetail(dist, this.fitDist || dist);
+    const boxes = [];
     for (const l of this.labels) {
+      l.div.textContent = formatPmi(l.it, detail);
+      const show = !l.hidden;
+      if (!show) { l.div.style.display = 'none'; continue; }
       v.copy(l.p).project(this.camera);
-      const vis = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+      const vis = v.z < 1 && Math.abs(v.x) < 1.25 && Math.abs(v.y) < 1.25;
       l.div.style.display = vis ? '' : 'none';
-      if (vis) l.div.style.transform = `translate(${((v.x + 1) / 2 * w).toFixed(1)}px, ${((1 - v.y) / 2 * h).toFixed(1)}px) translate(-50%, -50%)`;
+      if (!vis) continue;
+      l.sx = (v.x + 1) / 2 * w; l.sy = (1 - v.y) / 2 * h;
+      boxes.push({ id: l.it.id, x: l.sx, y: l.sy, w: l.div.offsetWidth || 48, h: l.div.offsetHeight || 18 });
     }
+    const placed = staggerBoxes(boxes);
+    const byId = new Map(placed.map(p => [p.id, p]));
+    let leaders = '';
+    for (const l of this.labels) {
+      const p = byId.get(l.it.id);
+      if (!p || l.div.style.display === 'none') continue;
+      l.div.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`;
+      if (p.shifted) leaders += `<line x1="${p.ax.toFixed(1)}" y1="${p.ay.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" />`;
+    }
+    if (this.leaderSvg) this.leaderSvg.innerHTML = leaders;
   }
 
   // ---------------------------------------------------------- Rendern
@@ -243,5 +370,3 @@ export class Viewer {
   }
   snapshot() { return this.renderer.domElement.toDataURL('image/png'); }
 }
-const fmt = x => (Math.round(x * 1000) / 1000).toString().replace('.', ',');
-const sgn = x => (x >= 0 ? '+' : '') + fmt(x);

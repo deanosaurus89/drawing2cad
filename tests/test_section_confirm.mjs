@@ -6,6 +6,7 @@ import { readFileSync } from 'fs';
 import { prim } from '../app/core/geom.js';
 import * as Sx from '../app/core/sections.js';
 import * as RC from '../app/core/recon.js';
+import { proposeStack, appliesStep } from '../app/core/stack.js';
 
 const pdfjs = await import(new URL('../vendor/pdf.min.mjs', import.meta.url).href);
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.mjs', import.meta.url).href;
@@ -112,10 +113,51 @@ test('Buchse A-A: Vorschlag ist die schraffierte Wand, Bohrung bleibt alternativ
   assert.ok(good.volume > 60000 && good.volume < 90000, `ca. Volumen ${good.volume}`);
 });
 
+test('Buchse: Feature-Stack dreht nur die bestätigte Basis', async () => {
+  const { contours, dr, layout, sections } = await vectorContours(new URL('../beispiele/06_buchse.pdf', import.meta.url).pathname);
+  const stack = proposeStack({
+    teil_typ: layout.typ,
+    massstab: dr.scale,
+    massstab_quelle: dr.scale_src || 'Schriftfeld',
+    schnitt_konturen: contours,
+    schnitte: sections.map(x => ({ buchstabe: x.letter, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? 'Stirnansicht' : null })),
+    einzelheiten: [{ buchstabe: 'Z', massstab: 5, vergroesserung: 5 }],
+    ansichten: [{ art: 'schnitt', rolle: 'Schnitt A-A' }, { art: 'ansicht', rolle: 'Stirnansicht' }],
+    masse: [{ id: 'M9', typ: 'fase', wert: 1, winkel: 45, text: '1x45°' }],
+    meldungen: ['Einzelheit Z (5:1): Konturelemente in die Hauptansicht übernommen (Vergrößerung 5.00×).'],
+    flaechen_statistik: { Zylinder: 4, Ebene: 3 },
+    schnitt_tiefe: null,
+  });
+  assert.equal(stack.scope, 'rotation');
+  assert.ok(stack.grund.length > 20);
+  const basis = stack.schritte.find(s => s.rolle === 'basis');
+  assert.equal(basis.op, 'drehen');
+  assert.equal(basis.confidence, 'hoch');
+  const live = stack.schritte.map(s => ({ ...s, status: 'vorschlag' }));
+  const auto = live.filter(appliesStep);
+  assert.deepEqual(auto.map(s => s.rolle), ['basis']);
+  const offen = live.filter(s => s.opWennBestaetigt === 'cut');
+  assert.ok(offen.length >= 1, 'unschraffierte Bahn bleibt ein Cut-Vorschlag');
+  assert.ok(offen.every(s => !appliesStep(s) && s.confidence === 'niedrig'));
+  assert.ok(live.some(s => s.rolle === 'einzelheit' && /Z/.test(s.titel)));
+  assert.ok(live.some(s => s.op === 'fase' && s.confidence !== 'hoch'));
+});
+
 test('Lagerplatte: Schnittkontur und Tiefenvorschlag', async () => {
-  const { contours, layout } = await vectorContours(new URL('../beispiele/07_lagerplatte_schnitt.pdf', import.meta.url).pathname);
+  const { contours, layout, dr, sections } = await vectorContours(new URL('../beispiele/07_lagerplatte_schnitt.pdf', import.meta.url).pathname);
   const prop = contours.find(c => c.vorschlag);
   assert.ok(prop && prop.schraffur >= 10, 'schraffierte Schnittfläche');
   assert.equal(layout.typ, 'prisma');
   assert.ok(prop.flaeche > 1500 && prop.flaeche < 2800, `Schnittfläche ${prop.flaeche}`);
+  const stack = proposeStack({
+    teil_typ: layout.typ, massstab: dr.scale, massstab_quelle: dr.scale_src || 'Schriftfeld',
+    schnitt_konturen: contours,
+    schnitte: sections.map(x => ({ buchstabe: x.letter, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? 'Draufsicht' : null })),
+    einzelheiten: [], ansichten: [{ art: 'schnitt' }, { art: 'ansicht' }], masse: [], meldungen: [],
+    flaechen_statistik: { Ebene: 6 }, schnitt_tiefe: 60,
+  });
+  const basis = stack.schritte.find(s => s.rolle === 'basis');
+  assert.equal(basis.op, 'extrudieren');
+  assert.equal(basis.confidence, 'hoch');
+  assert.equal(stack.scope, 'prismatisch');
 });

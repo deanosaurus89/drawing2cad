@@ -68,13 +68,48 @@ h2 small{font-weight:normal;color:#667}
 #auswahl{position:absolute;right:8px;bottom:8px;max-width:min(340px,70%);background:rgba(255,255,255,.95);border:1px solid #c5cfdb;border-radius:8px;padding:8px 10px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 #auswahl table td{padding:1px 6px 1px 0;vertical-align:top}
 #labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-.pmilabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#fff8e1;border:1px solid #b8860b;color:#5a4100;border-radius:4px;padding:1px 5px;font-size:12px;white-space:nowrap}
-.pmilabel.aktiv{background:#ff3b30;color:#fff;border-color:#a00;z-index:2}
+.pmilabel{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:#e8f5e9;border:1px solid #2e7d32;color:#1b5e20;border-radius:4px;padding:2px 6px;font-size:13px;font-weight:600;white-space:nowrap;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.pmilabel.k-abstand{background:#e3f2fd;border-color:#1565c0;color:#0d47a1}
+.pmilabel.k-gdt{background:#f3e5f5;border-color:#6a1b9a;color:#4a148c}
+.pmilabel.k-pruef{background:#fff3e0;border-color:#e65100;color:#bf360c}
+.pmilabel.k-mass{background:#e8f5e9;border-color:#2e7d32;color:#1b5e20}
+.pmilabel.hover{outline:1px dashed currentColor;opacity:.85}
+.pmilabel.aktiv{background:#ff3b30;color:#fff;border-color:#a00;z-index:3;opacity:1}
+.pmi-leader{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.pmi-leader line{stroke:#5c6b7a;stroke-width:1}
 table{border-collapse:collapse;width:100%}
 #masse td,#masse th{border-bottom:1px solid #e3e8ee;padding:3px 4px;text-align:left;font-size:13px}
 #masse input{width:90px;min-height:40px;font:inherit;padding:0 6px;border:1px solid #9fb0c5;border-radius:6px}
 #masse input.geaendert{background:#fff4d6;border-color:#e0a000}
 #masse tr.fest td{color:#889}
+#masse tr.k-abstand td:first-child,#pmi li.k-abstand{box-shadow:inset 4px 0 0 #1565c0}
+#masse tr.k-gdt td:first-child,#pmi li.k-gdt{box-shadow:inset 4px 0 0 #6a1b9a}
+#masse tr.k-pruef td:first-child,#pmi li.k-pruef{box-shadow:inset 4px 0 0 #e65100}
+#masse tr.k-mass td:first-child,#pmi li.k-mass{box-shadow:inset 4px 0 0 #2e7d32}
+.leg-masse{font-size:12px;color:#445;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.leg-masse i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px}
+.leg-masse i.k-abstand{background:#1565c0}
+.leg-masse i.k-gdt{background:#6a1b9a}
+.leg-masse i.k-pruef{background:#e65100}
+.leg-masse i.k-mass{background:#2e7d32}
+#pmi-filter .btn.klein{min-height:44px}
+#pmi-filter .btn.aktiv{outline:2px solid #1f3a5f}
+#stack-box{margin-top:10px;padding:8px;border:1px solid #d9e0e8;border-radius:8px;background:#f8fafc}
+#stack-conf{font-weight:600;margin:4px 0 8px}
+#stack-conf.hoch{color:#1b5e20}
+#stack-conf.mittel{color:#8a6d00}
+#stack-conf.niedrig{color:#8a1c1c}
+.stack-step{border:1px solid #d9e0e8;border-radius:8px;padding:8px;margin:8px 0;background:#fff}
+.stack-step.braucht{border-color:#e0a000;background:#fff8e8}
+.stack-step.immodell{border-color:#2e7d32}
+.stack-step .grund{margin:4px 0;font-size:13px;color:#334}
+.stack-step .fehler{color:#8a1c1c;font-size:13px}
+.badge{display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin:0 4px 4px 0;background:#eceff1;color:#37474f}
+.badge.hoch,.badge.bestaetigt{background:#e8f5e9;color:#1b5e20}
+.badge.mittel,.badge.vorschlag{background:#fff8e1;color:#8a6d00}
+.badge.niedrig{background:#fde8e8;color:#8a1c1c}
+.badge.uebersprungen,.badge.rolle{background:#eceff1;color:#546e7a}
+#sk-stack{min-height:48px}
 .zeile{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
 #info table td{padding:2px 6px 2px 0;font-size:13px}
 #pmi{list-style:none;padding:0;margin:0}

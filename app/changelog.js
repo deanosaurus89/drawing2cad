@@ -1,8 +1,15 @@
 // Version und „Neu in dieser Version“. version.json im Stamm muss version und date von BUILD entsprechen.
-export const BUILD = { version: '2026.0.2', date: '2026-10-28' };
+export const BUILD = { version: '2026.0.3', date: '2026-10-29' };
 
 /** Neueste Fassung zuerst. Kurz halten: Dialog nach einem Versionswechsel und über „Neuigkeiten“. */
 export const CHANGELOG = [
+  { version: '2026.0.3', date: '2026-10-29', items: [
+    'Testliste: feste Leiste mit großem „Schließen“ und „← Zurück zur App“. Esc geht zurück, sonst zur App.',
+    'Feature-Stack: Basis aus bestätigtem Hauptschnitt (Drehen oder Extrudieren), weitere Schnitte als Add/Cut, Einzelheiten und Fasen nur nach Bestätigung.',
+    'Sicherheit je Schritt und gesamt (hoch, mittel, niedrig). Bei niedriger Sicherheit wird nichts still gebaut.',
+    '3D-PMI: Maßtext parallel zur Kamera, Abstände mit Maßlinie und Pfeilen, Staffelung, Zoom zeigt die Toleranz, Klick hebt Bezüge und Linie hervor.',
+    'Nur prismatische und rotationssymmetrische Teile. Freiformflächen sind als nicht unterstützt gekennzeichnet.',
+  ] },
   { version: '2026.0.2', date: '2026-10-28', items: [
     'Halbautomatische Schnittkontur: farbige Vorschläge auf der Zeichnung, Kontur bestätigen, Achse und Maßstab prüfen.',
     '3D aus Schnitt dreht die bestätigte Kontur. Bei Platten: Extrudieren (Tiefe aus der Nachbaransicht).',

@@ -791,7 +791,7 @@ export function analyse(solid) {
 }
 
 const AX = { X: 0, Y: 1, Z: 2 };
-function pmiItems(dims, faces, bboxC, diag) {
+function pmiItems(dims, faces, bboxC, diag, bb) {
   const items = [];
   const planesAt = (A, val) => { const k = AX[A]; return faces.filter(f => f.typ_en === 'plane' && Math.abs(Math.abs(f.normale[k]) - 1) < 1e-3 && Math.abs(f.punkt[k] - val) < 0.05); };
   const cylAxisAt = (A, val) => { const k = AX[A]; return faces.filter(f => f.typ_en === 'cylinder' && Math.abs(f.achse[k]) < 1e-3 && Math.abs(f.punkt[k] - val) < 0.05); };
@@ -822,8 +822,15 @@ function pmiItems(dims, faces, bboxC, diag) {
     const m = [0, 1, 2].map(k => cents.reduce((s, c) => s + c[k], 0) / cents.length);
     let dv = m.map((x, k) => x - bboxC[k]); let n = Math.hypot(...dv); if (n < 1e-6) { dv = [0, 0, 1]; n = 1; }
     const label = m.map((x, k) => x + dv[k] / n * 0.28 * diag + (k === 2 ? 0.04 * diag : 0));
-    items.push({ id: 'PMI-' + d.id, masz: d.id, typ, nennmass: d.wert, einheit: typ === 'Winkel' ? '°' : 'mm', tol_oben: d.tol_o ?? null, tol_unten: d.tol_u ?? null,
-      passung: d.passung ?? null, text: d.text, bezuege: refs.map((g, i) => ({ rolle: `Element ${i + 1}`, flaechen: g })), hinweis: note, anker_3d: r3(m), label_3d: r3(label) });
+    const klasse = Dm.dimKlasse(d);
+    let masslinie = null, hilfslinien = null;
+    if (a.art === 'linear' && bb && a.achse in { X: 1, Y: 1, Z: 1 }) {
+      masslinie = Dm.masslinieAbstand(a.achse, a.m0, a.m1, bb[0], bb[1]);
+      if (masslinie) hilfslinien = Dm.hilfslinienAbstand(a.achse, a.m0, a.m1, bb[0], bb[1], masslinie);
+    }
+    items.push({ id: 'PMI-' + d.id, masz: d.id, typ, klasse, nennmass: d.wert, einheit: typ === 'Winkel' ? '°' : 'mm', tol_oben: d.tol_o ?? null, tol_unten: d.tol_u ?? null,
+      passung: d.passung ?? null, text: d.text, bezuege: refs.map((g, i) => ({ rolle: `Element ${i + 1}`, flaechen: g })), hinweis: note, anker_3d: r3(m), label_3d: r3(label),
+      masslinie, hilfslinien });
   }
   return items;
 }
@@ -855,7 +862,8 @@ export function modelFromConfirmedSection(spec) {
     if (!(depth > 0)) throw new ReconError('Extrusionstiefe muss größer als 0 sein.');
     const items = Sx.orientItems(Sx.closeItems(items0));
     const pts = items.flatMap(it => it.pts);
-    const x0 = Math.min(...pts.map(p => p[0])), y0 = Math.min(...pts.map(p => p[1]));
+    const x0 = spec.origin ? +spec.origin[0] : Math.min(...pts.map(p => p[0]));
+    const y0 = spec.origin ? +spec.origin[1] : Math.min(...pts.map(p => p[1]));
     const dir = spec.dir === 'y' ? [0, depth, 0] : spec.dir === 'x' ? [depth, 0, 0] : [0, 0, depth];
     const f = p => {
       const x = (p[0] - x0) / scale, y = (p[1] - y0) / scale;
@@ -895,6 +903,173 @@ export function modelFromConfirmedSection(spec) {
       teil_typ: spec.mode === 'extrudieren' ? 'prisma' : 'dreh',
     }, mesh: an.mesh, edgeMesh: an.edgeMesh,
   };
+}
+
+function sheetOrigin(items) {
+  const pts = (items || []).flatMap(it => it.pts || []);
+  if (!pts.length) return null;
+  return [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1]))];
+}
+function turnedRadius(solid) {
+  const bb = solid.boundingBox.bounds;
+  return Math.max(Math.abs(bb[0][1]), Math.abs(bb[1][1]), Math.abs(bb[0][2]), Math.abs(bb[1][2]));
+}
+function chamferTool(xEnd, sign, radius, c, angleDeg) {
+  const ang = Math.max(15, Math.min(75, angleDeg || 45)) * Math.PI / 180;
+  const axial = c, radial = c * Math.tan(ang);
+  const xA = xEnd - sign * 0.02, xB = xEnd + sign * axial;
+  const p1 = [xA, radius + 0.15, 0], p2 = [xB, radius + 0.15, 0], p3 = [xA, Math.max(0.05, radius - radial), 0];
+  const wire = R.assembleWire([R.makeLine(p1, p2), R.makeLine(p2, p3), R.makeLine(p3, p1)]);
+  return onlySolid(R.revolution(R.makeFace(wire), [0, 0, 0], [1, 0, 0], 360));
+}
+function applyChamfer(solid, spec) {
+  const c = +spec.c;
+  if (!(c > 0)) return null;
+  const bb = solid.boundingBox.bounds;
+  const radius = turnedRadius(solid);
+  const radial = c * Math.tan(Math.max(15, Math.min(75, spec.winkel || 45)) * Math.PI / 180);
+  if (radius <= radial + 0.2) return null;
+  const before = vol(solid);
+  let out = solid;
+  try {
+    out = onlySolid(out.cut(chamferTool(bb[0][0], 1, radius, c, spec.winkel)));
+    out = onlySolid(out.cut(chamferTool(bb[1][0], -1, radius, c, spec.winkel)));
+  } catch (e) { return null; }
+  const dv = before - vol(out);
+  if (!(dv > 0.05)) return null;
+  return { solid: out, text: `Fase ${c} × ${spec.winkel || 45}° an beiden äußeren Stirnkanten, Volumen −${dv.toFixed(1)} mm³` };
+}
+function countersinkTool(xEnd, sign, radius, bore, angleDeg) {
+  const half = (angleDeg || 90) * Math.PI / 360;
+  const depth = (radius - bore) / Math.tan(half);
+  if (!(depth > 0.05)) return null;
+  const x0 = xEnd - sign * 0.02, x1 = xEnd + sign * depth;
+  const pts = [[x0, 0, 0], [x0, radius, 0], [x1, Math.max(0, bore), 0], [x1, 0, 0]];
+  const wire = R.assembleWire(pts.map((q, k) => R.makeLine(q, pts[(k + 1) % pts.length])));
+  return onlySolid(R.revolution(R.makeFace(wire), [0, 0, 0], [1, 0, 0], 360));
+}
+function applyCountersink(solid, spec) {
+  const radius = +spec.durchmesser / 2;
+  const bore = spec.bohrung > 0 ? +spec.bohrung / 2 : Math.max(0.2, radius * 0.5);
+  if (!(radius > bore + 0.05)) return null;
+  const bb = solid.boundingBox.bounds;
+  const before = vol(solid);
+  let best = null;
+  for (const [x, sign, name] of [[bb[0][0], 1, 'der einen Stirnseite'], [bb[1][0], -1, 'der anderen Stirnseite']]) {
+    let tool, next;
+    try { tool = countersinkTool(x, sign, radius, bore, spec.winkel); if (!tool) continue; next = onlySolid(solid.cut(tool)); }
+    catch (e) { continue; }
+    const dv = before - vol(next);
+    if (dv > 0.5 && dv < before * 0.35 && (!best || dv > best.dv)) best = { solid: next, dv, name };
+  }
+  if (!best) return null;
+  return { solid: best.solid, text: `Senkung ${spec.winkel || 90}° Ø${(2 * radius).toFixed(2)} an ${best.name}, Volumen −${best.dv.toFixed(1)} mm³` };
+}
+function booleanOp(solid, tool, op) {
+  const once = s => op === 'add' ? onlySolid(s.fuse(tool)) : onlySolid(s.cut(tool));
+  try { return once(solid); }
+  catch (e) {
+    try { return once(solid.simplify()); }
+    catch (e2) { throw e; }
+  }
+}
+function packStack(solid, fields) {
+  try { solid = solid.simplify(); } catch (e) { /* ignorieren */ }
+  const gueltig = isValid(solid);
+  const an = analyse(solid);
+  const bb = solid.boundingBox.bounds; const [x0, y0, z0] = bb[0], [x1, y1, z1] = bb[1];
+  const bbc = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2];
+  const diag = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+  const dims = fields.dims || [];
+  const pmi = dims.length ? pmiItems(dims, an.faces, bbc, diag, bb) : [];
+  const stats = {}, estats = {};
+  for (const f of an.faces) stats[f.typ] = (stats[f.typ] || 0) + 1;
+  for (const e of an.edges) estats[e.typ] = (estats[e.typ] || 0) + 1;
+  const meldungen = fields.meldungen.slice();
+  if (!gueltig) meldungen.push('WARNUNG: Das B-Rep ist laut OpenCASCADE nicht gültig.');
+  const ziel = dims.filter(d => d.anker && d.anker.art && d.anker.art !== 'info').length;
+  if (ziel && pmi.length < ziel) meldungen.push('Hinweis: Nicht jedes Maß hat am Feature-Stack eine passende Bezugsfläche. Bohrungsdurchmesser und Abstände stehen weiter in der Maßliste.');
+  return {
+    solid, result: {
+      ok: true, quelle: 'stack', strategie: fields.strategy, meldungen, aenderungen: [], merkmale: fields.feats,
+      massstab: fields.scale, massstab_schriftfeld: null, dpi_bekannt: null,
+      volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
+      texte: [], ansichten: [], schnitte: [], einzelheiten: [], schnitt_konturen: [], page_w: null, page_h: null,
+      masse: dims, pmi, flaechen: an.faces, kanten: an.edges, flaechen_statistik: stats, kanten_statistik: estats,
+      teil_typ: fields.teil, stack_bericht: fields.bericht, sicherheit: fields.sicherheit || null, sicherheit_grund: fields.sicherheit_grund || null,
+    }, mesh: an.mesh, edgeMesh: an.edgeMesh,
+  };
+}
+
+/** Mehrere bestätigte Schritte: Basis (Drehen/Extrudieren), dann Add/Cut, Fase, Senkung. */
+export function modelFromFeatureStack(spec) {
+  if (!R) throw new ReconError('CAD-Kern nicht bereit.');
+  const steps = (spec && spec.steps) || [];
+  const base = steps.find(s => s.op === 'drehen' || s.op === 'extrudieren');
+  if (!base || !base.spec) throw new ReconError('Kein Basisvolumen. Bitte den Hauptschnitt bestätigen.');
+  base.spec.mode = base.op === 'extrudieren' ? 'extrudieren' : 'drehen';
+  if (base.spec.mode === 'extrudieren') {
+    const origin = sheetOrigin(base.spec.items);
+    if (origin) base.spec.origin = origin;
+    if (!(base.spec.depth > 0)) throw new ReconError('Extrusionstiefe fehlt. Bitte die Tiefe eintragen und den Schritt bestätigen.');
+  }
+  let built;
+  try { built = modelFromConfirmedSection(base.spec); }
+  catch (e) { throw new ReconError('Basis nicht baubar: ' + (e.message || e)); }
+  let solid = built.solid;
+  const feats = built.result.merkmale.slice();
+  const meldungen = ['Feature-Stack: ' + built.result.strategie + '.'];
+  const bericht = [{ id: base.id, ok: true, text: 'Basisvolumen ' + built.result.volumen_mm3.toLocaleString('de-DE') + ' mm³' }];
+  for (const st of steps) {
+    if (!st || st === base || st.id === base.id) continue;
+    if (st.op !== 'add' && st.op !== 'cut' && st.op !== 'fase' && st.op !== 'senkung') continue;
+    try {
+      if (st.op === 'add' || st.op === 'cut') {
+        const sp = Object.assign({}, st.spec);
+        if (sp.mode === 'extrudieren' || base.spec.mode === 'extrudieren') {
+          sp.mode = 'extrudieren';
+          sp.origin = base.spec.origin || sheetOrigin(base.spec.items);
+          sp.depth = base.spec.depth;
+          sp.dir = base.spec.dir || sp.dir;
+          sp.scale = base.spec.scale || sp.scale;
+        } else {
+          sp.mode = 'drehen';
+          sp.axis = base.spec.axis || sp.axis;
+          sp.scale = base.spec.scale || sp.scale;
+          sp.side = base.spec.side || sp.side || 'auto';
+        }
+        const tool = modelFromConfirmedSection(sp).solid;
+        const before = vol(solid);
+        solid = booleanOp(solid, tool, st.op);
+        const dv = vol(solid) - before;
+        const text = (st.op === 'add' ? 'Add' : 'Cut') + ` „${st.titel}“: ΔV ${dv.toFixed(1)} mm³`;
+        if (Math.abs(dv) < 1e-2) meldungen.push(text + ' – Volumen fast unverändert. Kontur und Lage prüfen.');
+        feats.push({ typ: st.op === 'add' ? 'Boolean Add' : 'Boolean Cut', text });
+        bericht.push({ id: st.id, ok: true, text });
+      } else if (st.op === 'fase') {
+        const r = applyChamfer(solid, st.spec || {});
+        if (!r) {
+          const text = `Fase „${st.titel}“ nicht geschnitten: keine passende Außenkante am Drehteil.`;
+          meldungen.push(text); bericht.push({ id: st.id, ok: false, text });
+        } else { solid = r.solid; feats.push({ typ: 'Fase', text: r.text }); bericht.push({ id: st.id, ok: true, text: r.text }); }
+      } else if (st.op === 'senkung') {
+        const r = applyCountersink(solid, st.spec || {});
+        if (!r) {
+          const text = `Senkung „${st.titel}“ nicht geschnitten: Kegel trifft das Volumen nicht. Lage prüfen.`;
+          meldungen.push(text); bericht.push({ id: st.id, ok: false, text });
+        } else { solid = r.solid; feats.push({ typ: 'Senkung', text: r.text }); bericht.push({ id: st.id, ok: true, text: r.text }); }
+      }
+    } catch (e) {
+      const text = `Schritt „${st.titel}“ nicht angewendet: ${e.message || e}. Der bisherige Körper bleibt.`;
+      meldungen.push(text); bericht.push({ id: st.id, ok: false, text });
+    }
+  }
+  return packStack(solid, {
+    dims: spec.dims || [], meldungen, feats, bericht,
+    strategy: 'Feature-Stack (' + (base.spec.mode === 'extrudieren' ? 'Extrusion' : 'Drehung') + ' und Boolean)',
+    scale: base.spec.scale, teil: base.spec.mode === 'extrudieren' ? 'prisma' : 'dreh',
+    sicherheit: spec.sicherheit || null, sicherheit_grund: spec.sicherheit_grund || null,
+  });
 }
 
 // ---------------------------------------------------------------- Hauptfunktion
@@ -1030,7 +1205,7 @@ export function processDrawing(dr, edits, log = () => {}) {
   const an = analyse(solid);
   const bb = solid.boundingBox.bounds; const [x0, y0, z0] = bb[0], [x1, y1, z1] = bb[1];
   const bbc = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2]; const diag = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
-  const pmi = pmiItems(dims, an.faces, bbc, diag);
+  const pmi = pmiItems(dims, an.faces, bbc, diag, bb);
   const stats = {}, estats = {};
   for (const f of an.faces) stats[f.typ] = (stats[f.typ] || 0) + 1;
   for (const e of an.edges) estats[e.typ] = (estats[e.typ] || 0) + 1;

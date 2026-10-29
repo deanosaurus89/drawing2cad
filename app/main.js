@@ -3,6 +3,8 @@ import { readFile, getOcr, profile } from './input.js';
 import { ocrPasses } from './core/ocr.js';
 import { Viewer, TYPE_COLORS, TYPE_NAMES } from './viewer.js';
 import { createSectionUI } from './sectionui.js';
+import { createStackUI } from './stackui.js';
+import { dimKlasse } from './core/dims.js';
 import { BUILD, showWhatsNew, maybeShowWhatsNew, versionText } from './changelog.js';
 
 const BASE = new URL('../', import.meta.url).href;
@@ -44,7 +46,7 @@ worker.postMessage({ type: 'init', base: BASE });
 // ---------------------------------------------------------------- UI-Helfer
 function status(t) { $('#status').textContent = t; }
 function bar(f) { $('#fortschritt div').style.width = f == null || f >= 1 ? '0' : (f * 100).toFixed(0) + '%'; }
-function busy(b) { state.busy = b; for (const s of ['#neu', '#x-step', '#x-stl', '#x-pmi', '#sk-build']) { const el = $(s); if (el) el.disabled = b || !state.result; } $('#beispiel').disabled = b; }
+function busy(b) { state.busy = b; for (const s of ['#neu', '#x-step', '#x-stl', '#x-pmi', '#sk-build', '#sk-stack']) { const el = $(s); if (el) el.disabled = b || !state.result; } $('#beispiel').disabled = b; }
 function msg(t, err) { const d = document.createElement('div'); d.textContent = t; if (err) d.className = 'fehler'; $('#meldungen').appendChild(d); }
 function tab(t) { $('main').dataset.tab = t; document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('aktiv', b.dataset.tab === t)); if (t === '3d') viewer.resize(); }
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => tab(b.dataset.tab)));
@@ -169,16 +171,22 @@ function zeige(r, name, ms, opts = {}) {
     <tr><td>Volumen</td><td id="volumen">${fmt(res.volumen_mm3, 1)} mm³</td></tr><tr><td>Abmessungen</td><td>${res.bbox.map(v => fmt(v, 2)).join(' × ')} mm</td></tr>
     <tr><td>Gültig (BRepCheck)</td><td>${res.gueltig ? 'ja' : 'nein'}</td></tr><tr><td>Merkmale</td><td>${(res.merkmale || []).map(m => esc(typeof m === 'string' ? m : `${m.typ}: ${m.text}`)).join('<br>')}</td></tr>
     <tr><td>Flächen</td><td>${res.flaechen.length}: ${esc(st)}</td></tr><tr><td>Kanten</td><td>${res.kanten.length}: ${esc(ks)}</td></tr>
-    <tr><td>Rechenzeit</td><td>${(ms / 1000).toFixed(1)} s</td></tr></table>`;
+    <tr><td>Rechenzeit</td><td>${(ms / 1000).toFixed(1)} s</td></tr>
+    ${res.sicherheit ? `<tr><td>Sicherheit</td><td class="k-${esc(res.sicherheit)}">${esc(res.sicherheit)} – ${esc(res.sicherheit_grund || '')}</td></tr>` : ''}
+    </table>`;
   $('#pmi').innerHTML = '';
   for (const it of res.pmi) {
     const li = document.createElement('li'); li.dataset.id = it.id;
+    const klasse = it.klasse || 'mass';
+    li.dataset.klasse = klasse; li.classList.add('k-' + klasse);
     const n = it.bezuege.reduce((a, b) => a + b.flaechen.length, 0);
     li.innerHTML = `<b>${esc(it.id)}</b> ${esc(it.typ)}: ${esc(it.text)} <small>(${n} Fläche${n === 1 ? '' : 'n'})</small>`;
     li.onclick = () => { viewer.onPmiClick(it); tab('3d'); };
     $('#pmi').appendChild(li);
   }
+  applyPmiFilter(state.pmiFilter || 'alle');
   try { sectionUi && sectionUi.onResult(res, opts); } catch (e) { console.warn(e); }
+  try { stackUi && stackUi.onResult(res, opts); } catch (e) { console.warn(e); }
   status(`Fertig: ${res.flaechen.length} Flächen, ${fmt(res.volumen_mm3, 1)} mm³ (${(ms / 1000).toFixed(1)} s)`);
   window.__ready = true; window.__letztes = { name, volumen: res.volumen_mm3, flaechen: res.flaechen.length, pmi: res.pmi.length, gueltig: res.gueltig, strategie: res.strategie };
   if (!opts.fromSection && matchMedia('(max-width: 899px)').matches) tab('3d');
@@ -186,7 +194,7 @@ function zeige(r, name, ms, opts = {}) {
 function tabelleMasse(res) {
   const tb = $('#masse tbody'); tb.innerHTML = '';
   for (const d of res.masse) {
-    const tr = document.createElement('tr'); if (!d.editierbar) tr.className = 'fest';
+    const tr = document.createElement('tr'); tr.className = (!d.editierbar ? 'fest ' : '') + 'k-' + dimKlasse(d);
     const cur = state.edits[d.id] ?? d.wert;
     tr.innerHTML = `<td>${esc(d.id)}</td><td>${esc(d.text)}</td><td></td>`;
     const inp = document.createElement('input'); inp.type = 'text'; inp.inputMode = 'decimal'; inp.value = String(cur).replace('.', ',');
@@ -251,6 +259,23 @@ window.__viewer = viewer;
 window.__cubePunkt = d => viewer.cubeScreen(d);
 
 sectionUi = createSectionUI({ $, call, viewer, state, status, msg, tab, busy, esc, zeige, fehler });
+let stackUi;
+function applyPmiFilter(k) {
+  state.pmiFilter = k || 'alle';
+  document.querySelectorAll('#pmi-filter button').forEach(b => b.classList.toggle('aktiv', b.dataset.filter === state.pmiFilter));
+  let shown = 0, n = 0;
+  document.querySelectorAll('#pmi li').forEach(li => {
+    n++;
+    const ok = state.pmiFilter === 'alle' || li.dataset.klasse === state.pmiFilter;
+    li.hidden = !ok; if (ok) shown++;
+  });
+  const empty = $('#pmi-leer');
+  if (empty) { empty.hidden = shown > 0 || !n; empty.textContent = n && !shown ? 'Keine Einträge in dieser Klasse.' : ''; }
+  viewer.setPmiFilter(state.pmiFilter);
+}
+document.querySelectorAll('#pmi-filter button').forEach(b => { b.onclick = () => applyPmiFilter(b.dataset.filter); });
+stackUi = createStackUI({ $, call, state, status, msg, tab, busy, esc, zeige, fehler, live: () => sectionUi.live(), restore: () => sectionUi.restore() });
+window.__stackSchritte = () => stackUi.steps();
 window.__schnittKandidaten = () => sectionUi.candidates();
 window.__schnittWahl = id => sectionUi.selectId(id);
 window.__schnittModell = id => sectionUi.build(id);
