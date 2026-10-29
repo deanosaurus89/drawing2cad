@@ -85,6 +85,10 @@ self.onmessage = async ev => {
       prog(id, '3D aus bestätigter Schnittkontur …');
       const t = performance.now();
       deliver(id, RC.modelFromConfirmedSection(m.spec), performance.now() - t);
+    } else if (m.type === 'feature_stack') {
+      prog(id, 'Feature-Stack (Extrusion, Drehung, Boolean) …');
+      const t = performance.now();
+      deliver(id, RC.modelFromFeatureStack(m.spec), performance.now() - t);
     } else if (m.type === 'export') {
       if (!lastSolid) throw new Error('Kein Modell vorhanden.');
       if (m.format === 'step') {

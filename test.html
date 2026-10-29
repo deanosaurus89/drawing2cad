@@ -4,9 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>drawing2cad – Testliste</title>
+<link rel="icon" href="data:,">
 <style>
-  body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom));background:#f3f5f8;color:#1b2633}
-  h1{font-size:18px;margin:0 0 8px} h2{font-size:16px;margin:18px 0 6px;color:#0d47a1;border-bottom:1px solid #c5d3e3}
+  body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:0 12px 12px;padding-bottom:max(12px,env(safe-area-inset-bottom));background:#f3f5f8;color:#1b2633}
+  .top{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#1f3a5f;color:#fff;margin:0 -12px 12px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top))}
+  .top h1{font-size:16px;margin:0;flex:1 1 160px}
+  #zurueck,#zurueck-link{min-height:48px;min-width:48px;padding:12px 16px;border:0;border-radius:10px;font:inherit;font-size:17px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+  #zurueck{background:#fff;color:#1f3a5f;flex:1 1 180px}
+  #zurueck-link{background:#2f6fd0;color:#fff;flex:1 1 180px}
+  h2{font-size:16px;margin:18px 0 6px;color:#0d47a1;border-bottom:1px solid #c5d3e3}
   .note{color:#567;font-size:13px;margin:0 0 10px}
   .it{background:#fff;border-radius:10px;padding:10px;margin:10px 0;box-shadow:0 1px 3px #0002}
   .t{margin:6px 0} .steps,.exp{font-size:14px;margin:4px 0} .exp{color:#1b5e20}
@@ -19,7 +25,11 @@
 </style>
 </head>
 <body>
-<h1>drawing2cad – Testliste <span id="ver">…</span></h1>
+<header class="top">
+  <button id="zurueck" type="button">Schließen</button>
+  <a id="zurueck-link" href="index.html">← Zurück zur App</a>
+  <h1>drawing2cad – Testliste <span id="ver">…</span></h1>
+</header>
 <p class="note">Je Punkt einen Status wählen. Bei ⚠️ und ❌ ist ein Kommentar Pflicht. Die Eingaben bleiben in diesem Browser gespeichert. Nach einem Deploy die App einmal hart neu laden, sonst bleibt die zuletzt gesehene Version liegen und die Neuigkeiten öffnen sich nicht.</p>
 <div id="list"></div>
 <button id="go" type="button">Ergebnis kopieren</button>
@@ -28,6 +38,15 @@
 const K = 'd2c-testliste';
 const L = { ok: '✅', warn: '⚠️', fail: '❌', skip: '⏸' };
 const GROUPS = [
+  { version: '2026.0.3', title: 'Feature-Stack und PMI', items: [
+    { id: 'N3', t: 'Testliste schließen', steps: '„Testliste“ antippen (neuer Tab). Zusätzlich die Liste im gleichen Tab öffnen: Leiste „Schließen“ und „← Zurück zur App“, dann Esc.', exp: 'Der Link bleibt target=_blank. Im neuen Tab bleibt die App offen. Im gleichen Tab führt Schließen zurück (sonst index.html). Esc macht dasselbe. Die Leiste bleibt beim Scrollen stehen und ist groß genug zum Tippen.' },
+    { id: 'F1', t: 'Stack auf der Buchse', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“. Reiter Zeichnung, Block Feature-Stack.', exp: 'Schritte: Blatt, Basis Drehen, Gegenhälfte oder Hinweis, Einzelheit Z, Fase. Status „Vorschlag“. Sicherheit gesamt mit kurzer Begründung. Freiform ist nicht als Volumen vorgeschlagen.' },
+    { id: 'F2', t: '3D aktualisieren', steps: 'Bei hoher Sicherheit der Basis „3D aktualisieren“. Danach einen Add/Cut-Schritt „Bestätigen“ und erneut aktualisieren. „Rückgängig“ an diesem Schritt.', exp: 'Zuerst nur das Basisvolumen. Nach Bestätigung ändert sich das Volumen (Add/Cut). Rückgängig nimmt den Schritt zurück. „Automatik“ stellt das bisherige Modell wieder her.' },
+    { id: 'F3', t: 'Niedrige Sicherheit', steps: 'Einen Schritt mit Sicherheit niedrig oder mittel ansehen, ohne ihn zu bestätigen, und „3D aktualisieren“.', exp: 'Der Schritt wird nicht still weggelassen: er bleibt sichtbar mit „bitte bestätigen“ und einem Hinweis. Überspringen nimmt ihn aus dem Stapel.' },
+    { id: 'P1', t: 'Maßtext in 3D', steps: 'Flansch laden, Reiter 3D, Schalter PMI an. Abstände und Durchmesser ansehen.', exp: 'Jedes Maß hat lesbaren Text parallel zur Kamera. Abstände zeigen Maßlinie und Pfeile zwischen den Bezügen. Die Farbe entspricht der Maßtabelle (Abstand blau, weiteres Maß grün, GD&T violett, Prüfmaß orange).' },
+    { id: 'P2', t: 'Zoom und Staffelung', steps: 'Weit herauszoomen, dann nah heranzoomen. Zwei nahe Maße beobachten.', exp: 'Weit: nur das Nennmaß. Nah: Toleranz oder Passung zusätzlich. Überlappende Texte staffeln sich, eine dünne Linie zeigt auf den Ursprung.' },
+    { id: 'P3', t: 'Klick, Hover, Filter', steps: 'Ein Maß antippen. Darüberfahren. In Info die Filter Alle, Abstände, GD&T, Prüfmaße.', exp: 'Klick hebt Bezugsflächen und die Maßlinie hervor (kräftig). Hover zeigt nur eine schwächere Linie, die Flächen bleiben. Der Filter blendet Liste und 3D-Texte gemeinsam. Export PMI (JSON) enthält weiterhin anker_3d und label_3d.' },
+  ]},
   { version: '2026.0.2', title: 'Schnittkontur bestätigen', items: [
     { id: 'S1', t: 'Farbige Vorschläge (Buchse)', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“ laden. Reiter Zeichnung, Block „Schnittkontur bestätigen“.', exp: 'Grün = Vorschlag (meiste Schraffur). Orange = andere schraffierte Hälfte. Violett = Bahn ohne Schraffur (Bohrung bzw. Einstich).' },
     { id: 'S2', t: 'Kontur bestätigen', steps: 'Eine farbige Fläche oder den Eintrag in der Liste antippen.', exp: 'Die gewählte Kontur ist markiert. Hinweistext nennt den grünen Vorschlag.' },
@@ -41,7 +60,7 @@ const GROUPS = [
     { id: 'S10', t: 'Lagerplatte extrudieren', steps: 'Beispiel „Lagerplatte – Schnitt A-A“. Art „Extrudieren“, Tiefe prüfen, „3D aus Schnitt“.', exp: 'Tiefe aus der Nachbaransicht (60 mm). Es entsteht ein konstantes Profil, nicht die Verschneidung der Automatik.' },
     { id: 'N1', t: 'Neuigkeiten immer öffnen', steps: 'Im Kopf oder unter Info „Neuigkeiten“ antippen. Dann ✕, Esc und Tippen neben den Dialog.', exp: 'Dialog „Neu in dieser Version“ mit Release Notes. Alle drei Wege schließen ihn. Das ✕ ist groß.' },
     { id: 'N2', t: 'Version sichtbar', steps: 'Kopfzeile und Reiter Info ansehen.', exp: 'Die aktuelle Version (gleich version.json) steht im Kopf und unter Info.' },
-    { id: 'N3', t: 'Testliste', steps: '„Testliste“ antippen.', exp: 'test.html öffnet sich in einem neuen Tab.' },
+    { id: 'N3a', t: 'Testliste neuer Tab', steps: '„Testliste“ in der App antippen.', exp: 'test.html öffnet sich in einem neuen Tab (target=_blank). Die Zeichnung im ersten Tab bleibt stehen.' },
     { id: 'N4', t: 'Auto-Popup nur bei neuer Version', steps: 'Frischen Browser: Seite laden (kein Dialog, Schlüssel wird nur gespeichert). Danach localStorage d2c-seen-version auf eine ältere Fassung setzen und neu laden. Danach noch einmal laden.', exp: 'Dialog nur beim ersten Laden nach dem Versionswechsel, etwa eine Sekunde nach dem Start. Zweites Laden: kein Dialog.' },
   ]},
   { version: '2026.0.1', title: 'Bestehende Funktionen', items: [
@@ -105,6 +124,18 @@ fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).t
   document.getElementById('ver').textContent = VER;
   document.title = 'drawing2cad – Testliste ' + v.version;
 }).catch(() => {});
+function zurueck() {
+  let same = false;
+  try { same = !!document.referrer && new URL(document.referrer).origin === location.origin; } catch (e) { same = false; }
+  if (same && history.length > 1) { history.back(); return; }
+  location.href = 'index.html';
+}
+document.getElementById('zurueck').onclick = zurueck;
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.target.tagName === 'TEXTAREA') return;
+  e.preventDefault();
+  zurueck();
+});
 document.getElementById('go').onclick = () => {
   let bad = false;
   const lines = ['Testergebnis drawing2cad ' + VER, new Date().toISOString().slice(0, 16)];

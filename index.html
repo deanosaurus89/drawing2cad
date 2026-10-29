@@ -74,6 +74,12 @@
         <small id="sk-scale-src"></small>
       </label>
     </div>
+    <div id="stack-box" hidden>
+      <h2>Feature-Stack</h2>
+      <p id="stack-conf"></p>
+      <div id="stack-liste"></div>
+      <button type="button" id="sk-stack" class="btn primaer">3D aktualisieren</button>
+    </div>
     <div id="meldungen"></div>
   </section>
   <section id="p-3d" class="panel">
@@ -92,6 +98,7 @@
   </section>
   <section id="p-masse" class="panel">
     <h2>Maße <small>(ändern → Modell neu erzeugen)</small></h2>
+    <p class="leg-masse"><i class="k-abstand"></i> Abstände <i class="k-gdt"></i> GD&amp;T <i class="k-pruef"></i> Prüfmaße <i class="k-mass"></i> weitere Maße</p>
     <table id="masse"><thead><tr><th>ID</th><th>Text</th><th>Wert</th></tr></thead><tbody></tbody></table>
     <div class="zeile"><button id="neu" class="btn primaer" disabled>Modell neu erzeugen</button><button id="zurueck" class="btn" disabled>Zurücksetzen</button></div>
     <h2>Export</h2>
@@ -112,6 +119,13 @@
     <h2>Modell</h2>
     <div id="info"><p class="leer">–</p></div>
     <h2>PMI</h2>
+    <div id="pmi-filter" class="zeile">
+      <button type="button" class="btn klein aktiv" data-filter="alle">Alle</button>
+      <button type="button" class="btn klein" data-filter="abstand">Abstände</button>
+      <button type="button" class="btn klein" data-filter="gdt">GD&amp;T</button>
+      <button type="button" class="btn klein" data-filter="pruef">Prüfmaße</button>
+    </div>
+    <p id="pmi-leer" class="leer" hidden></p>
     <ul id="pmi"></ul>
   </section>
 </main>

@@ -312,8 +312,26 @@ export function createSectionUI(api) {
   $('#sk-auto').onclick = restore;
   $('#sk-scale').addEventListener('change', () => render());
 
+  function live() {
+    const depth = parseFloat(String($('#sk-tiefe').value).replace(',', '.'));
+    return {
+      mode: mode(),
+      axis: ui.axis ? clone(ui.axis) : null,
+      scale: scale(),
+      side: ui.side,
+      depth: isFinite(depth) ? depth : null,
+      dir: $('#sk-dir').value,
+      contour(id) {
+        const c = ui.contours.find(x => x.id === id);
+        if (!c || ui.rejected.has(c.id)) return null;
+        return { id: c.id, items: c.edited ? itemsFromPoly(c.poly) : c.items, poly: c.poly };
+      },
+      select(id) { if (id) select(id); },
+    };
+  }
+
   return {
-    onResult, build, restore, render,
+    onResult, build, restore, render, live,
     selectId: id => { ui.axisDirty = false; select(id); },
     candidates: () => ui.contours.map(c => ({ id: c.id, schraffur: c.schraffur, flaeche: c.flaeche, vorschlag: !!c.vorschlag, quelle: c.quelle, buchstabe: c.buchstabe, rejected: ui.rejected.has(c.id) })),
     selected: () => ui.selected,

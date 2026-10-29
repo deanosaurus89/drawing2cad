@@ -32,6 +32,55 @@ function parseTol(rest, nominal) {
   return {};
 }
 
+/** Klasse für Maßtabelle, PMI-Liste und 3D-Beschriftung. */
+export const KLASSE = {
+  abstand: { name: 'Abstand', farbe: '#1565c0', flaeche: '#e3f2fd', hex: 0x1565c0 },
+  gdt: { name: 'GD&T', farbe: '#6a1b9a', flaeche: '#f3e5f5', hex: 0x6a1b9a },
+  pruef: { name: 'Prüfmaß', farbe: '#e65100', flaeche: '#fff3e0', hex: 0xe65100 },
+  mass: { name: 'Maß', farbe: '#2e7d32', flaeche: '#e8f5e9', hex: 0x2e7d32 },
+};
+const GDT_RE = /⌖|⊕|⊥|∥|⌒|⌓|↗|rundheit|geradheit|ebenheit|zylindr|profilform|positionstoleranz|\blauf\b|gesamtlauf|rechtwink|parallelit|symmetr|koaxial|form-?\s*und\s*lage/i;
+const PRUEF_RE = /prüf|pruef/i;
+const ABSTAND_TYP = new Set(['laenge', 'tiefe', 'tasche', 'teilkreis', 'Abstand', 'Tiefe', 'Tasche (Größe)', 'Teilkreis (Lagemaß)']);
+
+export function dimKlasse(d) {
+  if (!d) return 'mass';
+  const blob = `${d.text || ''} ${d.hinweis || ''} ${d.quelle || ''} ${d.name || ''}`;
+  if (PRUEF_RE.test(blob)) return 'pruef';
+  if (GDT_RE.test(blob) || d.typ === 'formlage' || d.typ === 'gdt') return 'gdt';
+  if (ABSTAND_TYP.has(d.typ)) return 'abstand';
+  return 'mass';
+}
+
+const AX_I = { X: 0, Y: 1, Z: 2 };
+const r3 = v => v.map(x => Math.round(x * 1000) / 1000);
+
+/** Maßlinie eines Abstands: verbindet die beiden Ebenen und liegt knapp außerhalb der Hüllbox. */
+export function masslinieAbstand(achse, m0, m1, lo, hi) {
+  const ax = AX_I[achse];
+  if (ax == null || !lo || !hi || m0 == null || m1 == null) return null;
+  const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+  const gap = Math.max(1.5, diag * 0.06);
+  const off = ax === 2 ? 0 : 2;
+  const a = Math.min(+m0, +m1), b = Math.max(+m0, +m1);
+  const mid = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const p0 = mid.slice(), p1 = mid.slice();
+  p0[ax] = a; p1[ax] = b;
+  p0[off] = hi[off] + gap; p1[off] = hi[off] + gap;
+  return [r3(p0), r3(p1)];
+}
+
+/** Hilfslinien von der Bauteilmitte auf jeder Ebene zur Maßlinie. */
+export function hilfslinienAbstand(achse, m0, m1, lo, hi, masslinie) {
+  const ax = AX_I[achse];
+  if (ax == null || !masslinie) return null;
+  const mid = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const a = Math.min(+m0, +m1), b = Math.max(+m0, +m1);
+  const c0 = mid.slice(), c1 = mid.slice();
+  c0[ax] = a; c1[ax] = b;
+  return [[r3(c0), masslinie[0]], [r3(c1), masslinie[1]]];
+}
+
 export function parsePhrase(text) {
   const t = text.trim();
   if (!t || SKIP.test(t)) return [];
