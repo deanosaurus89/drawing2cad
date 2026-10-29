@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { prim } from '../app/core/geom.js';
-import { axisBetween, axisFromPrim, erkenneMittellinie, eineSeite, symmetrieren } from '../app/core/mittellinie.js';
+import { axisBetween, axisFromPrim, erkenneMittellinie, eineSeite, symmetrieren, halbkontur } from '../app/core/mittellinie.js';
 import { proposeAxis } from '../app/core/sections.js';
 import { extractDrawings, extractPhrases, readPdfVector } from '../app/core/pdfin.js';
 
@@ -49,6 +49,18 @@ test('Halbkontur wird an der Mittellinie ergänzt, volle Kontur nicht', () => {
   assert.ok(full && full.length >= 6);
   const beide = [{ k: 'line', pts: [[0, -4], [10, -4]] }, { k: 'line', pts: [[10, 4], [0, 4]] }];
   assert.equal(eineSeite(beide.flatMap(it => it.pts), axis), false);
+});
+
+test('Halbkontur liegt nur auf einer Seite der Achse', () => {
+  const poly = [[0, -10], [40, -10], [40, 20], [0, 20]];
+  const axis = { p0: [0, 0], p1: [40, 0] };
+  const gross = halbkontur(poly, axis, 'auto');
+  assert.equal(gross.seite, 1);
+  assert.ok(gross.poly.every(p => p[1] >= -0.05));
+  assert.ok(gross.flaeche > 700 && gross.flaeche < 900);
+  const klein = halbkontur(poly, axis, -1);
+  assert.equal(klein.seite, -1);
+  assert.ok(klein.poly.every(p => p[1] <= 0.05));
 });
 
 test('Buchse: gezeichnete Mittellinie im Schnitt', async () => {

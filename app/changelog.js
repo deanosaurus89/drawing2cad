@@ -1,8 +1,14 @@
 // Version und „Neu in dieser Version“. version.json im Stamm muss version und date von BUILD entsprechen.
-export const BUILD = { version: '2026.0.5', date: '2026-10-29' };
+export const BUILD = { version: '2026.0.6', date: '2026-10-29' };
 
 /** Neueste Fassung zuerst. Kurz halten: Dialog nach einem Versionswechsel und über „Neuigkeiten“. */
 export const CHANGELOG = [
+  { version: '2026.0.6', date: '2026-10-29', items: [
+    'Geführter Ablauf: Ansicht festlegen, Mittellinie, Kontur, Schritt 1 erzeugen, dann weitere Körper.',
+    'Jede Ansicht hat eine Rolle (normale Ansicht oder Schnitt) und, wenn sie Körper wird, Rotieren oder Extrudieren.',
+    'Bei Rotation ist die grüne Fläche nur die Hälfte neben der Achse. Die Seite lässt sich umschalten.',
+    'Konstruktionsschritte sagen, was zu tun ist und was sich am Volumen ändert. Bestätigen baut sofort. Hinweise ändern das Modell nicht.',
+  ] },
   { version: '2026.0.5', date: '2026-10-29', items: [
     'Mittellinie: Strichlinie und aufgelöste Kurz-lang-Folge werden erkannt.',
     'Fehlte die Erkennung, eine bestehende Linie antippen. Ohne Mittellinie zwei Kanten wählen, die Achse liegt dazwischen.',

@@ -333,7 +333,7 @@ async function baueHinweis(h) {
         type: 'section_model',
         spec: {
           items: itemsFromPoly(poly), mode: h.modus, axis: h.achse,
-          scale: a.massstab || (a.dr && a.dr.scale) || 1, side: 'auto',
+          scale: a.massstab || (a.dr && a.dr.scale) || 1, side: h.seite || 'auto',
           depth: depth > 0.5 ? depth : 10, dir: 'z', label: 'Bestätigte Bahn',
         },
       });

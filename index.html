@@ -26,35 +26,57 @@
     <h2>Zeichnung</h2>
     <div id="vorschau"><p class="leer">Noch keine Zeichnung. PDF (Vektor oder Scan), PNG, JPG oder TIFF wählen – oder ein Beispiel.</p></div>
     <div id="ansicht-panel" hidden>
-      <h2>Ansichten</h2>
+      <h2>So arbeiten wir uns vor</h2>
       <p id="av-conf"></p>
-      <div id="av-liste"></div>
-      <label>Rekonstruktion
-        <select id="av-modus" aria-label="Drehen oder Extrudieren">
-          <option value="auto">Automatik</option>
-          <option value="drehen">Drehen (rotationssymmetrisch)</option>
-          <option value="extrudieren">Extrudieren</option>
-        </select>
-      </label>
-      <div id="av-achse-block">
-        <p id="av-achse-src" class="leer"></p>
-        <p class="leer">Grüne Bahn = Kontur für Drehen oder Extrudieren. Violett gestrichelt = Mittellinie.</p>
-        <div class="zeile">
-          <button type="button" id="av-achse-mark" class="btn">Linie als Mittellinie</button>
-          <button type="button" id="av-achse-zwei" class="btn">Aus zwei Linien</button>
-        </div>
-        <label>Achse Y auf dem Blatt (mm), wenn sie waagerecht liegt
-          <input id="av-achse" type="number" step="0.1" inputmode="decimal" aria-label="Rotationsachse">
-        </label>
-      </div>
-      <label>Lücken schließen bis (mm)
-        <input id="av-luecke" type="number" min="0.1" max="3" step="0.1" value="0,45" inputmode="decimal" aria-label="Lückentoleranz">
-      </label>
-      <label class="chk"><input type="checkbox" id="av-schliessen"> Fast geschlossene Kontur mit Gerade schließen</label>
-      <div class="zeile">
-        <button type="button" id="av-bauen" class="btn primaer">3D erzeugen</button>
-        <button type="button" id="av-fit" class="btn">Bögen fitten</button>
-      </div>
+      <ol class="fuehrung">
+        <li>
+          <b>1. Ansicht festlegen</b>
+          <p class="was">Was tun? Bei jeder Ansicht Rolle wählen. Schnitt oder der erste Körper: Rotieren oder Extrudieren. Genau eine Ansicht ist Schritt 1.</p>
+          <p class="wirkung">Wirkung: Nur Schritt 1 wird der erste Körper. Isometrie bleibt draußen. Noch kein Volumen.</p>
+          <div id="av-liste"></div>
+        </li>
+        <li id="av-schritt-achse">
+          <b>2. Mittellinie</b>
+          <p class="was">Was tun? Nur bei Rotieren. Erkannte Achse prüfen, eine Linie antippen oder aus zwei Kanten ableiten.</p>
+          <p class="wirkung" id="av-achse-src">Wirkung: Die violette Linie ist die Rotationsachse. Ohne sie wird nicht rotiert.</p>
+          <div class="zeile">
+            <button type="button" id="av-achse-mark" class="btn">Linie als Mittellinie</button>
+            <button type="button" id="av-achse-zwei" class="btn">Aus zwei Linien</button>
+          </div>
+          <label>Hälfte, die rotiert wird
+            <select id="av-seite" aria-label="Halbkontur">
+              <option value="auto">Größere Hälfte</option>
+              <option value="1">Eine Seite der Achse</option>
+              <option value="-1">Die andere Seite</option>
+            </select>
+          </label>
+          <p class="wirkung" id="av-haelfte"></p>
+          <label>Achse Y (mm), nur wenn sie waagerecht liegt
+            <input id="av-achse" type="number" step="0.1" inputmode="decimal" aria-label="Rotationsachse">
+          </label>
+        </li>
+        <li>
+          <b>3. Kontur</b>
+          <p class="was">Was tun? Die grüne Fläche ansehen. „Bögen fitten“ macht aus kurzen Linien Gerade, Kreisbogen oder Kreis. Haken nur, wenn eine Lücke zu ist.</p>
+          <p class="wirkung">Wirkung: Diese Fläche wird der Querschnitt. Bei Rotieren nur die Hälfte neben der Achse, nicht die ganze Ansicht.</p>
+          <label>Lücken schließen bis (mm)
+            <input id="av-luecke" type="number" min="0.1" max="3" step="0.1" value="0.45" inputmode="decimal" aria-label="Lückentoleranz">
+          </label>
+          <label class="chk"><input type="checkbox" id="av-schliessen"> Fast geschlossene Kontur mit Gerade schließen</label>
+          <button type="button" id="av-fit" class="btn">Bögen fitten</button>
+        </li>
+        <li>
+          <b>4. Schritt 1 erzeugen</b>
+          <p class="was">Was tun? „Schritt 1 erzeugen“ drücken, wenn Rolle, Achse und grüne Hälfte stimmen.</p>
+          <p class="wirkung" id="av-schritt1">Wirkung: In der 3D-Ansicht erscheint der erste Körper. Das Volumen steht danach in der Statuszeile. Vorher ändert sich nichts.</p>
+          <button type="button" id="av-bauen" class="btn primaer">Schritt 1 erzeugen</button>
+          <select id="av-modus" hidden aria-label="Drehen oder Extrudieren">
+            <option value="auto">Automatik</option>
+            <option value="drehen">Drehen</option>
+            <option value="extrudieren">Extrudieren</option>
+          </select>
+        </li>
+      </ol>
     </div>
     <div id="schnitt-panel" hidden>
       <h2>Schnittkontur bestätigen</h2>
@@ -110,10 +132,11 @@
       </label>
     </div>
     <div id="stack-box" hidden>
-      <h2>Feature-Stack</h2>
+      <h2>Konstruktionsschritte</h2>
+      <p class="was">Schritt 1 ist der erste Körper. Jeder weitere Schritt ist ein Zusatz oder ein Abzug. Bestätigen baut sofort neu. „Gelesen“ ändert das Volumen nicht.</p>
       <p id="stack-conf"></p>
       <div id="stack-liste"></div>
-      <button type="button" id="sk-stack" class="btn primaer">3D aktualisieren</button>
+      <button type="button" id="sk-stack" class="btn primaer">Modell aus bestätigten Schritten</button>
     </div>
     <div id="meldungen"></div>
   </section>
