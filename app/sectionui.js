@@ -330,8 +330,16 @@ export function createSectionUI(api) {
     };
   }
 
+  function reset() {
+    ui.contours = []; ui.rejected = new Set(); ui.selected = null; ui.editing = false; ui.picking = 0; ui.axis = null; ui.axisDirty = false;
+    const svg = $('#konturen'); if (svg) svg.replaceChildren();
+    const g = $('#griffe'); if (g) g.replaceChildren();
+    const p = panel(); if (p) p.hidden = true;
+    const list = $('#schnitt-liste'); if (list) list.innerHTML = '';
+  }
+
   return {
-    onResult, build, restore, render, live,
+    onResult, build, restore, render, live, reset,
     selectId: id => { ui.axisDirty = false; select(id); },
     candidates: () => ui.contours.map(c => ({ id: c.id, schraffur: c.schraffur, flaeche: c.flaeche, vorschlag: !!c.vorschlag, quelle: c.quelle, buchstabe: c.buchstabe, rejected: ui.rejected.has(c.id) })),
     selected: () => ui.selected,

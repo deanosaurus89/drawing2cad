@@ -43,13 +43,20 @@ export function staggerBoxes(boxes, gap = 6) {
   const placed = [];
   const sorted = (boxes || []).map(b => ({ ...b })).sort((a, b) => a.y - b.y || a.x - b.x);
   const out = [];
+  const dirs = [[0, 1], [1, 0], [0, -1], [-1, 0]];
   for (const b of sorted) {
     const w = b.w || 48, h = b.h || 18;
-    let y = b.y, n = 0;
-    const hit = () => placed.some(p => Math.abs(p.x - b.x) < (p.w + w) / 2 + gap && Math.abs(p.y - y) < (p.h + h) / 2 + gap);
-    while (hit() && n < 8) { y += h + gap; n++; }
-    placed.push({ x: b.x, y, w, h });
-    out.push({ id: b.id, x: b.x, y, shifted: n > 0, ax: b.x, ay: b.y });
+    let x = b.x, y = b.y, n = 0;
+    const hit = (px, py) => placed.some(p => Math.abs(p.x - px) < (p.w + w) / 2 + gap && Math.abs(p.y - py) < (p.h + h) / 2 + gap);
+    while (hit(x, y) && n < 16) {
+      const [dx, dy] = dirs[n % 4];
+      const step = n % 2 === 0 ? h + gap : Math.max(w * 0.55, h);
+      x = b.x + dx * step * (1 + Math.floor(n / 4));
+      y = b.y + dy * step * (1 + Math.floor(n / 4));
+      n++;
+    }
+    placed.push({ x, y, w, h });
+    out.push({ id: b.id, x, y, shifted: n > 0 || Math.hypot(x - b.x, y - b.y) > 1, ax: b.x, ay: b.y });
   }
   return out;
 }

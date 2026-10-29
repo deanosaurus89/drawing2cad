@@ -3,45 +3,15 @@ import { prim, Graph, ReconError, loopItems, loopBbox, loopArea, bbox, sample, d
 import * as Dm from './dims.js';
 import * as Ra from './raster.js';
 import * as Sx from './sections.js';
+import { clusterViews, refresh, aufbereiten, suggestAxis, bewerte } from './views.js';
+import { readPdfVector } from './pdfin.js';
+
+export { clusterViews, refresh };
 
 let R = null, oc = null;
 export function setLib(replicad, ocInstance) { R = replicad; oc = ocInstance; }
 
 // ---------------------------------------------------------------- Ansichten
-export function clusterViews(prims, gap = 3.0, minSize = 4.0) {
-  const boxes = prims.map(bbox); const parent = prims.map((_, i) => i);
-  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-  for (let i = 0; i < prims.length; i++) for (let j = i + 1; j < prims.length; j++) {
-    const [a0, a1] = boxes[i], [b0, b1] = boxes[j];
-    if (a0[0] - gap <= b1[0] && b0[0] - gap <= a1[0] && a0[1] - gap <= b1[1] && b0[1] - gap <= a1[1]) parent[find(i)] = find(j);
-  }
-  const groups = new Map(); prims.forEach((_, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
-  let views = [];
-  for (const g of groups.values()) {
-    const lo = [Math.min(...g.map(i => boxes[i][0][0])), Math.min(...g.map(i => boxes[i][0][1]))];
-    const hi = [Math.max(...g.map(i => boxes[i][1][0])), Math.max(...g.map(i => boxes[i][1][1]))];
-    if (Math.max(hi[0] - lo[0], hi[1] - lo[1]) < minSize) continue;
-    views.push({ prims: g.map(i => prims[i]), lo, hi });
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    outer: for (const a of views) for (const b of views) {
-      if (a !== b && a.lo[0] >= b.lo[0] - 0.01 && a.lo[1] >= b.lo[1] - 0.01 && a.hi[0] <= b.hi[0] + 0.01 && a.hi[1] <= b.hi[1] + 0.01) {
-        b.prims.push(...a.prims); views = views.filter(v => v !== a); changed = true; break outer;
-      }
-    }
-  }
-  views.forEach(refresh);
-  views.sort((a, b) => -a.c[1] + b.c[1] || a.c[0] - b.c[0]);
-  return views;
-}
-export function refresh(v) {
-  const bb = v.prims.map(bbox);
-  v.lo = [Math.min(...bb.map(b => b[0][0])), Math.min(...bb.map(b => b[0][1]))];
-  v.hi = [Math.max(...bb.map(b => b[1][0])), Math.max(...bb.map(b => b[1][1]))];
-  v.c = [(v.lo[0] + v.hi[0]) / 2, (v.lo[1] + v.hi[1]) / 2]; v.size = [v.hi[0] - v.lo[0], v.hi[1] - v.lo[1]];
-}
 function assignHidden(views, hidden) {
   for (const v of views) v.hidden = [];
   for (const p of hidden) {
@@ -103,6 +73,50 @@ export function detectLayout(views) {
   if (T != null) maps[T] = { x: ['X', X0, 1], y: ['Y', views[T].lo[1], 1] };
   if (S != null) { const Sv = views[S]; maps[S] = { x: Sv.c[0] > Fv.c[0] ? ['Y', Sv.hi[0], -1] : ['Y', Sv.lo[0], 1], y: ['Z', Z0, 1] }; }
   return { typ: 'prisma', F, T, S, maps };
+}
+
+function layoutDrehen(views, dr) {
+  let pi = views.findIndex(v => v.rolle === 'haupt');
+  if (pi < 0) pi = 0;
+  const P = views[pi];
+  const achse = suggestAxis(P, dr.center);
+  const ay = dr.hinweis && isFinite(dr.hinweis.achse_y) ? +dr.hinweis.achse_y : achse.y;
+  const ci = views.findIndex((v, i) => i !== pi && v.prims.some(p => p.kind === 'circle'));
+  return { typ: 'dreh', profil: pi, kreis: ci >= 0 ? ci : null, achse_y: ay, maps: { [pi]: { x: ['X', P.lo[0], 1], y: ['R', ay, 1] } } };
+}
+
+function layoutPrisma(views) {
+  let fi = views.findIndex(v => v.rolle === 'haupt');
+  if (fi < 0) fi = 0;
+  const Fv = views[fi];
+  return { typ: 'prisma', F: fi, T: null, S: null, maps: { [fi]: { x: ['X', Fv.lo[0], 1], y: ['Y', Fv.lo[1], 1] } } };
+}
+
+/** Ansichtszerlegung ohne Volumen, für die Bestätigung in der Oberfläche. */
+export function analyseBlatt(ex, tc, pageW, pageH, hinweis) {
+  const dr = readPdfVector(ex, tc, pageW, pageH);
+  if (hinweis) dr.hinweis = hinweis;
+  return analyseDr(dr);
+}
+
+export function analyseDr(dr) {
+  const prep = aufbereiten(dr, dr.hinweis || null);
+  let layout = null, layoutError = null;
+  try {
+    const fuerLayout = prep.views.filter(v => v.rolle !== 'einzelheit');
+    if (fuerLayout.length) layout = detectLayout(fuerLayout);
+  } catch (e) { layoutError = e.message || String(e); }
+  const score = bewerte(prep, layout, layoutError);
+  const haupt = prep.views.find(v => v.rolle === 'haupt') || prep.views[0] || null;
+  const achse = suggestAxis(haupt, dr.center);
+  let modus = layout && layout.typ === 'dreh' ? 'drehen' : layout && layout.typ === 'prisma' ? 'extrudieren' : 'auto';
+  if (/Lange Ansicht ohne Stirnkreise/.test(score.grund)) modus = 'drehen';
+  return {
+    dr, ...prep, layout, layoutError, modus, ...score,
+    page_w: dr.page_w, page_h: dr.page_h,
+    achse_y: achse ? achse.y : null, achse_quelle: achse ? achse.quelle : null,
+    massstab: dr.scale, massstab_quelle: dr.scale_src || '',
+  };
 }
 
 // ---------------------------------------------------------------- CAD-Helfer
@@ -285,7 +299,7 @@ function reconstructRevolve(ctx) {
   const rmin = rv.length ? Math.min(...rv) : 0;
   L.profil_radien = [...new Set(rv.map(r => Math.round(r * 1000) / 1000))].sort((a, b) => a - b);
   const feats = [{ typ: 'Drehung', text: `Rotationsprofil aus ${kinds.length} Konturelementen (${count(kinds, 'line')} Geraden, ${count(kinds, 'arc')} Bögen, ${count(kinds, 'spline')} Splines), Länge ${Lx.toFixed(2)} mm, Ø max ${(2 * Rmax).toFixed(2)} mm` }];
-  const conc = C.prims.filter(c => c.kind === 'circle' && dist(c.center, C.c) < 0.6);
+  const conc = C ? C.prims.filter(c => c.kind === 'circle' && dist(c.center, C.c) < 0.6) : [];
   let inner = conc.filter(c => c.r / s < rmin - 0.05);
   // separate Schnittansicht mit Schraffur innerhalb dieses Radius -> keine Durchgangsbohrung (Sackbohrungen nicht aus dem Raster lesbar)
   const secS = ctx.raster && (ctx.sections || []).filter(x => x.hatch.length >= 3 && x.view !== L.kreis).sort((a, b) => b.hatch.length - a.hatch.length)[0];
@@ -301,7 +315,7 @@ function reconstructRevolve(ctx) {
     solid = onlySolid(solid.cut(R.makeCylinder(rb, Lx + 2, [-1, 0, 0], [1, 0, 0])));
     feats.push({ typ: 'Bohrung', text: `Zentrische Durchgangsbohrung Ø${(2 * rb).toFixed(2)} mm` });
   }
-  const off = C.prims.filter(c => c.kind === 'circle' && dist(c.center, C.c) >= 0.6);
+  const off = C ? C.prims.filter(c => c.kind === 'circle' && dist(c.center, C.c) >= 0.6) : [];
   // Lochkreis vervollständigen, wenn die Zeichnung „x4“/„4x“ angibt und Bohrungen fehlen (z. B. von Text verdeckt)
   let ergaenzt = 0;
   if (off.length >= 2) {
@@ -793,6 +807,15 @@ export function analyse(solid) {
 const AX = { X: 0, Y: 1, Z: 2 };
 function pmiItems(dims, faces, bboxC, diag, bb) {
   const items = [];
+  const bahnen = { X: [], Y: [], Z: [] };
+  const naechsteBahn = (achse, m0, m1) => {
+    const a = Math.min(+m0, +m1), b = Math.max(+m0, +m1);
+    const list = bahnen[achse] || (bahnen[achse] = []);
+    let lane = 0;
+    while (list.some(s => s.lane === lane && !(b < s.a - 0.5 || a > s.b + 0.5))) lane++;
+    list.push({ lane, a, b });
+    return lane;
+  };
   const planesAt = (A, val) => { const k = AX[A]; return faces.filter(f => f.typ_en === 'plane' && Math.abs(Math.abs(f.normale[k]) - 1) < 1e-3 && Math.abs(f.punkt[k] - val) < 0.05); };
   const cylAxisAt = (A, val) => { const k = AX[A]; return faces.filter(f => f.typ_en === 'cylinder' && Math.abs(f.achse[k]) < 1e-3 && Math.abs(f.punkt[k] - val) < 0.05); };
   for (const d of dims) {
@@ -821,12 +844,21 @@ function pmiItems(dims, faces, bboxC, diag, bb) {
     const cents = faces.filter(f => ids.includes(f.sid)).map(f => f.zentrum_flaeche);
     const m = [0, 1, 2].map(k => cents.reduce((s, c) => s + c[k], 0) / cents.length);
     let dv = m.map((x, k) => x - bboxC[k]); let n = Math.hypot(...dv); if (n < 1e-6) { dv = [0, 0, 1]; n = 1; }
-    const label = m.map((x, k) => x + dv[k] / n * 0.28 * diag + (k === 2 ? 0.04 * diag : 0));
     const klasse = Dm.dimKlasse(d);
     let masslinie = null, hilfslinien = null;
+    let label = m.map((x, k) => x + dv[k] / n * 0.28 * diag + (k === 2 ? 0.04 * diag : 0));
     if (a.art === 'linear' && bb && a.achse in { X: 1, Y: 1, Z: 1 }) {
-      masslinie = Dm.masslinieAbstand(a.achse, a.m0, a.m1, bb[0], bb[1]);
-      if (masslinie) hilfslinien = Dm.hilfslinienAbstand(a.achse, a.m0, a.m1, bb[0], bb[1], masslinie);
+      const lane = naechsteBahn(a.achse, a.m0, a.m1);
+      masslinie = Dm.masslinieAbstand(a.achse, a.m0, a.m1, bb[0], bb[1], lane);
+      if (masslinie) {
+        hilfslinien = Dm.hilfslinienAbstand(a.achse, a.m0, a.m1, bb[0], bb[1], masslinie);
+        label = [0, 1, 2].map(k => (masslinie[0][k] + masslinie[1][k]) / 2);
+      }
+    } else {
+      const ang = items.length * 0.9;
+      const dir = [Math.cos(ang), Math.sin(ang) * 0.7, 0.55];
+      const nl = Math.hypot(...dir) || 1;
+      label = m.map((x, k) => x + dir[k] / nl * 0.42 * diag);
     }
     items.push({ id: 'PMI-' + d.id, masz: d.id, typ, klasse, nennmass: d.wert, einheit: typ === 'Winkel' ? '°' : 'mm', tol_oben: d.tol_o ?? null, tol_unten: d.tol_u ?? null,
       passung: d.passung ?? null, text: d.text, bezuege: refs.map((g, i) => ({ rolle: `Element ${i + 1}`, flaechen: g })), hinweis: note, anker_3d: r3(m), label_3d: r3(label),
@@ -1088,22 +1120,15 @@ export function processDrawing(dr, edits, log = () => {}) {
     }
     dr.thick = dr.thick.filter(p => !drop.has(p));
   }
-  let views = clusterViews(dr.thick, raster ? 2.0 : 3.0, 4.0);
-  // kurze breite Striche = Enden eines Schnittverlaufs
-  const strokes = (dr.strokes || []).slice();
-  // kleine Ansichten vollständig innerhalb einer größeren (z. B. Bohrungen der Stirnansicht) zusammenführen
-  if (raster) {
-    for (const v of views.slice()) {
-      const host = views.find(w => w !== v && Math.max(...w.size) > Math.max(...v.size) * 2 && v.lo[0] >= w.lo[0] && v.hi[0] <= w.hi[0] && v.lo[1] >= w.lo[1] && v.hi[1] <= w.hi[1]);
-      if (host) { host.prims.push(...v.prims); views.splice(views.indexOf(v), 1); refresh(host); }
-    }
+  const prep = aufbereiten(dr, dr.hinweis || null);
+  for (const t of prep.msgs) msgs.push(t);
+  let views = prep.views;
+  const strokes = prep.strokes;
+  if (!views.length) {
+    const n = prep.alle.length;
+    if (n) throw new ReconError(`Auf dem Blatt sind ${n} Bereiche, aber keine freigegebene Körperansicht. Bitte Hauptansicht wählen und „3D erzeugen“. Isometrie und Schriftfeld zählen nicht als Volumen.`);
+    throw new ReconError('Die Linien bilden keine Ansicht. Das Blatt ist nicht leer – Gruppierung oder Linienstärke prüfen, nicht „keine Zeichnung“.');
   }
-  views = views.filter(v => {
-    const st = Math.max(...v.size) < 12 && Math.min(...v.size) < 1.5 && v.prims.length <= 2 && v.prims.every(p => p.kind === 'line');
-    if (st) strokes.push(v);
-    return !st && !(raster && Math.max(...v.size) < 8);
-  });
-  if (!views.length) throw new ReconError('Keine Ansichten erkannt.');
   const lab = Sx.parseLabels(dr.phrases);
   const hatch = dr.hatch || [];
   // Einzelheiten: aus der Ansichtsliste lösen und in die Elternansicht übertragen
@@ -1162,7 +1187,15 @@ export function processDrawing(dr, edits, log = () => {}) {
   } else { s = dr.scale; tol = TOL; scaleSrc = dr.scale_src || ''; msgs.push(`Maßstab ${Ra.fmtScale(s)} (${dr.scale_src})`); }
   if (globalThis.DBG) for (const v of views) console.log('VIEW', JSON.stringify(v.prims.map(p=>[p.kind, p.r&&+p.r.toFixed(2), p.sweep&&+p.sweep.toFixed(2), (p.pts||[]).map(q=>q.map(x=>+x.toFixed(1)))])).slice(0,600), v.lo.map(x => x.toFixed(1)), v.hi.map(x => x.toFixed(1)), v.prims.length, v.prims.filter(p => p.kind === 'circle').map(c => c.r.toFixed(2) + '@' + c.center.map(x => x.toFixed(1))).join(' '));
   for (const v of views) { v.weak = v.prims.filter(p => p.weak); v.prims = v.prims.filter(p => !p.weak); }
-  const layout = detectLayout(views);
+  let layout;
+  const modus = dr.hinweis && dr.hinweis.modus;
+  if (modus === 'drehen') layout = layoutDrehen(views, dr);
+  else if (modus === 'extrudieren') {
+    try {
+      layout = detectLayout(views);
+      if (layout.typ !== 'prisma') layout = layoutPrisma(views);
+    } catch { layout = layoutPrisma(views); }
+  } else layout = detectLayout(views);
   if (globalThis.DBG) console.log('LAYOUT', JSON.stringify(layout));
   const ctx = new Dm.Ctx(views, layout, s); ctx.tol = tol; ctx.phrases = dr.phrases; ctx.msgs = msgs; ctx.raster = raster; ctx.dr = dr;
   const sections = Sx.findSections(views, strokes, lab, hatch, msgs);
@@ -1209,7 +1242,8 @@ export function processDrawing(dr, edits, log = () => {}) {
   const stats = {}, estats = {};
   for (const f of an.faces) stats[f.typ] = (stats[f.typ] || 0) + 1;
   for (const e of an.edges) estats[e.typ] = (estats[e.typ] || 0) + 1;
-  const viewBoxes = views.map((v, i) => ({ lo: r3(v.blattBox ? v.blattBox[0] : v.lo), hi: r3(v.blattBox ? v.blattBox[1] : v.hi), rolle: (rollen[i] || '') + (v.eigenerMassstab ? ` ${Ra.fmtScale(v.eigenerMassstab)}` : ''), art: sections.some(x => x.view === i) ? 'schnitt' : 'ansicht' }));
+  const viewBoxes = views.map((v, i) => ({ lo: r3(v.blattBox ? v.blattBox[0] : v.lo), hi: r3(v.blattBox ? v.blattBox[1] : v.hi), rolle: (rollen[i] || v.label || '') + (v.eigenerMassstab ? ` ${Ra.fmtScale(v.eigenerMassstab)}` : ''), art: sections.some(x => x.view === i) ? 'schnitt' : (v.art || 'ansicht') }));
+  for (const v of prep.alle) if (!views.includes(v)) viewBoxes.push({ lo: r3(v.lo), hi: r3(v.hi), rolle: v.label, art: v.art || 'ansicht' });
   for (const d of detailInfo) {
     const v = d.viewObj; viewBoxes.push({ lo: r3([d.cD[0] - d.rD, d.cD[1] - d.rD]), hi: r3([d.cD[0] + d.rD, d.cD[1] + d.rD]), rolle: `Einzelheit ${d.letter}${d.k ? ' (' + Ra.fmtScale(d.k) + ')' : ''}`, art: 'einzelheit' });
     viewBoxes.push({ lo: r3([d.cP[0] - d.rP, d.cP[1] - d.rP]), hi: r3([d.cP[0] + d.rP, d.cP[1] + d.rP]), rolle: d.letter, art: 'detailkreis' });
@@ -1223,6 +1257,7 @@ export function processDrawing(dr, edits, log = () => {}) {
       ok: true, quelle: dr.kind, strategie: strategy, meldungen: msgs, aenderungen: aend, merkmale: feats, massstab: s, massstab_schriftfeld: dr.scale_txt ?? null, massstab_quelle: scaleSrc, dpi_bekannt: dr.dpi_known ?? null,
       volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
       texte: (dr.phrases || []).map(p => p.text), ansichten: viewBoxes, schnitte: sections.map(x => ({ buchstabe: x.letter, ansicht: rollen[x.view], schraffurlinien: x.hatch.length, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? rollen[x.parent] : null })), einzelheiten: detailInfo.map(d => ({ buchstabe: d.letter, massstab: d.k, vergroesserung: +d.ratio.toFixed(3) })), page_w: dr.page_w, page_h: dr.page_h, masse: dims, pmi, flaechen: an.faces, kanten: an.edges,
+      blatt: prep.alle.map(v => ({ id: v.id, rolle: v.rolle, label: v.label, art: v.art, nutzen: views.includes(v) })),
       flaechen_statistik: stats, kanten_statistik: estats, teil_typ: layout.typ, schnitt_konturen: schnittKonturen, schnitt_tiefe: schnittTiefe,
     }, mesh: an.mesh, edgeMesh: an.edgeMesh,
   };
