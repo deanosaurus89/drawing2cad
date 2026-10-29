@@ -38,6 +38,12 @@
 const K = 'd2c-testliste';
 const L = { ok: '✅', warn: '⚠️', fail: '❌', skip: '⏸' };
 const GROUPS = [
+  { version: '2026.0.5', title: 'Mittellinie und Bahn', items: [
+    { id: 'M1', t: 'Mittellinie erkannt', steps: 'Beispiel „Buchse – Schnitt A-A + Einzelheit Z“. Reiter Zeichnung, Block Schnittkontur, Art Drehen.', exp: 'Eine violett gestrichelte Mittellinie liegt auf der gezeichneten Strichlinie. Die grüne Bahn ist die Kontur, die gedreht wird.' },
+    { id: 'M2', t: 'Linie nachträglich markieren', steps: '„Linie als Mittellinie“, eine bestehende Kante antippen (Buchse oder Training Welle).', exp: 'Die violette Achse springt auf diese Linie. Hinweis nennt „angeklickte Linie“. Drehen und Extrudieren nutzen sie.' },
+    { id: 'M3', t: 'Aus zwei Linien ableiten', steps: '„Aus zwei Linien“. Zwei parallele Kanten nacheinander antippen, zum Beispiel Ober- und Unterkante einer Welle.', exp: 'Die Mittellinie liegt in der Mitte. Schräg zueinander liegende Linien werden abgelehnt, mit einer Meldung.' },
+    { id: 'M4', t: 'Bahn sichtbar, Beispiele bleiben', steps: 'Flansch und Buchse laden. Zusätzlich ein Trainingsblatt, Modus Drehen oder Extrudieren.', exp: 'Flansch und Buchse bauen weiter von selbst. Die grüne Kontur bleibt in der Zeichnung sichtbar, auch nach dem 3D.' },
+  ]},
   { version: '2026.0.4', title: 'Trainingsblätter, Ansichten, Prüfmerkmale', items: [
     { id: 'T1', t: 'Trainingspaar laden', steps: 'Beispielmenü, Gruppe Trainingspaare, „03 Verbindung“.', exp: 'Die Zeichnung erscheint. Es gibt keine Meldung, das Blatt habe keine Ansichten. Die Liste zeigt Hauptansicht, abgeleitete Ansicht und Isometrie. Isometrie ist nicht angehakt.' },
     { id: 'T2', t: 'Bestätigen und 3D', steps: 'Rollen prüfen. Bei einer Welle „Drehen“ und die Achse. „3D erzeugen“.', exp: 'Es entsteht ein Volumen oder eine klare Fehlermeldung zur Kontur. Sicherheit steht über der Liste. Ein Klick genügt, wenn die Rollen schon stimmen.' },

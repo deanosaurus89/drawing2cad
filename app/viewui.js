@@ -1,4 +1,6 @@
-// Ansichtsliste: Rollen bestätigen, Drehen/Extrudieren, Achse, Linienzüge fitten.
+// Ansichtsliste: Rollen bestätigen, Drehen/Extrudieren, Mittellinie, Linienzüge fitten.
+import { bahnAusAnsicht, ansichtFuerBahn } from './core/mittellinie.js';
+const NS = 'http://www.w3.org/2000/svg';
 const ROLLEN = [
   ['haupt', 'Hauptansicht'],
   ['rechts', 'Abgeleitet rechts'],
@@ -15,7 +17,7 @@ const ROLLEN = [
 
 export function createViewUI(api) {
   const { $ } = api;
-  const ui = { analyse: null };
+  const ui = { analyse: null, achse: null };
 
   function panel() { return $('#ansicht-panel'); }
   function list() { return $('#av-liste'); }
@@ -58,15 +60,55 @@ export function createViewUI(api) {
       box.appendChild(row);
     }
     $('#av-modus').value = a.modus || (a.layout && a.layout.typ === 'dreh' ? 'drehen' : 'auto');
-    if (a.achse_y != null) $('#av-achse').value = String(Math.round(a.achse_y * 10) / 10).replace('.', ',');
-    $('#av-achse-src').textContent = a.achse_quelle === 'mittellinie' ? 'Achse aus der Mittellinie.' : 'Achse in der Mitte der Hauptansicht (Mittellinie darf fehlen).';
+    if (!ui.achse || (ui.achse.quelle !== 'markiert' && ui.achse.quelle !== 'abgeleitet')) ui.achse = a.achse || ui.achse;
+    if (ui.achse && ui.achse.p0) {
+      const y = (ui.achse.p0[1] + ui.achse.p1[1]) / 2;
+      if (Math.abs(ui.achse.p0[1] - ui.achse.p1[1]) <= Math.abs(ui.achse.p0[0] - ui.achse.p1[0]) + 0.5) $('#av-achse').value = y.toFixed(2);
+    }
+    const namen = { mittellinie: 'erkannte Mittellinie', markiert: 'angeklickte Linie', abgeleitet: 'Mitte aus zwei Linien', ansichtsmitte: 'Mitte der Ansicht' };
+    $('#av-achse-src').textContent = ui.achse ? 'Mittellinie: ' + (namen[ui.achse.quelle] || ui.achse.quelle) + '.' : 'Noch keine Mittellinie. Linie antippen oder zwei Kanten wählen.';
     toggleAchse();
     paint(a);
+    zeichneOverlay();
+  }
+
+  function zeichneOverlay() {
+    const svg = $('#konturen');
+    const a = ui.analyse;
+    if (!svg || !a || !a.page_w) return;
+    svg.querySelectorAll('[data-bahn],[data-ml]').forEach(n => n.remove());
+    const poly = bahnAusAnsicht(ansichtFuerBahn(a));
+    if (poly && poly.length >= 3) {
+      const pl = document.createElementNS(NS, 'polyline');
+      const ring = poly.concat([poly[0]]);
+      pl.setAttribute('points', ring.map(p => `${p[0]},${a.page_h - p[1]}`).join(' '));
+      pl.setAttribute('fill', 'rgba(10,122,50,0.16)');
+      pl.setAttribute('stroke', '#0a7a32');
+      pl.setAttribute('stroke-width', '4');
+      pl.setAttribute('vector-effect', 'non-scaling-stroke');
+      pl.dataset.bahn = '1';
+      svg.appendChild(pl);
+    }
+    const ax = ui.achse;
+    if (ax && ax.p0 && ax.p1) {
+      const ln = document.createElementNS(NS, 'line');
+      ln.setAttribute('x1', ax.p0[0]); ln.setAttribute('y1', a.page_h - ax.p0[1]);
+      ln.setAttribute('x2', ax.p1[0]); ln.setAttribute('y2', a.page_h - ax.p1[1]);
+      ln.setAttribute('stroke', '#6c2bd9'); ln.setAttribute('stroke-width', '3');
+      ln.setAttribute('stroke-dasharray', '8 4');
+      ln.setAttribute('vector-effect', 'non-scaling-stroke');
+      ln.dataset.ml = '1';
+      svg.appendChild(ln);
+    }
+  }
+
+  function setAxis(ax) {
+    ui.achse = ax;
+    if (ui.analyse) show(ui.analyse);
   }
 
   function toggleAchse() {
-    const dreh = $('#av-modus').value === 'drehen';
-    $('#av-achse-block').hidden = !dreh;
+    $('#av-achse-block').hidden = false;
   }
 
   function hinweis() {
@@ -83,14 +125,15 @@ export function createViewUI(api) {
     return {
       ansichten,
       modus: $('#av-modus').value,
-      achse_y: isFinite(y) ? y : null,
+      achse_y: isFinite(y) ? y : (ui.achse && ui.achse.p0 ? (ui.achse.p0[1] + ui.achse.p1[1]) / 2 : null),
+      achse: ui.achse || null,
       luecke_mm: isFinite(luecke) ? luecke : 0.45,
       schliessen: !!$('#av-schliessen').checked,
     };
   }
 
   function reset() {
-    ui.analyse = null;
+    ui.analyse = null; ui.achse = null;
     const el = panel();
     if (el) el.hidden = true;
     const box = list();
@@ -98,6 +141,12 @@ export function createViewUI(api) {
     document.querySelectorAll('.box.av').forEach(b => b.remove());
   }
 
+  const achsen = api.achsen;
+  if (achsen && $('#av-achse-mark')) {
+    $('#av-achse-mark').onclick = () => { achsen.setMode('mark'); api.msg('Bestehende Linie oder Kurve als Mittellinie antippen.'); };
+    $('#av-achse-zwei').onclick = () => { achsen.setMode('pair'); api.msg('Erste Linie antippen, danach die parallele Gegenkante.'); };
+    achsen.on(ax => { if (ax) setAxis(ax); });
+  }
   $('#av-modus').onchange = toggleAchse;
   $('#av-bauen').onclick = () => api.bauen(hinweis());
   $('#av-fit').onclick = () => {
@@ -107,5 +156,5 @@ export function createViewUI(api) {
     api.erneut(h);
   };
 
-  return { show, reset, hinweis, paint };
+  return { show, reset, hinweis, paint, setAxis };
 }

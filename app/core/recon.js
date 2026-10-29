@@ -4,6 +4,7 @@ import * as Dm from './dims.js';
 import * as Ra from './raster.js';
 import * as Sx from './sections.js';
 import { clusterViews, refresh, aufbereiten, suggestAxis, bewerte } from './views.js';
+import { bahnAusAnsicht, symmetrieren } from './mittellinie.js';
 import { readPdfVector } from './pdfin.js';
 
 export { clusterViews, refresh };
@@ -75,12 +76,20 @@ export function detectLayout(views) {
   return { typ: 'prisma', F, T, S, maps };
 }
 
+function bahnPaket(layout, views, dr) {
+  const v = !layout ? null : layout.typ === 'dreh' && layout.profil != null ? views[layout.profil] : (layout.F != null ? views[layout.F] : views[0]);
+  if (!v) return null;
+  return { poly: bahnAusAnsicht(v), achse: Sx.proposeAxis(v, dr.center, layout, dr) };
+}
+
 function layoutDrehen(views, dr) {
   let pi = views.findIndex(v => v.rolle === 'haupt');
   if (pi < 0) pi = 0;
   const P = views[pi];
-  const achse = suggestAxis(P, dr.center);
-  const ay = dr.hinweis && isFinite(dr.hinweis.achse_y) ? +dr.hinweis.achse_y : achse.y;
+  const achse = suggestAxis(P, dr.center, dr);
+  let ay = dr.hinweis && isFinite(dr.hinweis.achse_y) ? +dr.hinweis.achse_y : achse.y;
+  const man = dr.hinweis && dr.hinweis.achse;
+  if (man && man.p0 && man.p1 && Math.abs(man.p0[1] - man.p1[1]) <= Math.abs(man.p0[0] - man.p1[0]) + 0.4) ay = (man.p0[1] + man.p1[1]) / 2;
   const ci = views.findIndex((v, i) => i !== pi && v.prims.some(p => p.kind === 'circle'));
   return { typ: 'dreh', profil: pi, kreis: ci >= 0 ? ci : null, achse_y: ay, maps: { [pi]: { x: ['X', P.lo[0], 1], y: ['R', ay, 1] } } };
 }
@@ -108,13 +117,13 @@ export function analyseDr(dr) {
   } catch (e) { layoutError = e.message || String(e); }
   const score = bewerte(prep, layout, layoutError);
   const haupt = prep.views.find(v => v.rolle === 'haupt') || prep.views[0] || null;
-  const achse = suggestAxis(haupt, dr.center);
+  const achse = suggestAxis(haupt, dr.center, dr);
   let modus = layout && layout.typ === 'dreh' ? 'drehen' : layout && layout.typ === 'prisma' ? 'extrudieren' : 'auto';
   if (/Lange Ansicht ohne Stirnkreise/.test(score.grund)) modus = 'drehen';
   return {
     dr, ...prep, layout, layoutError, modus, ...score,
     page_w: dr.page_w, page_h: dr.page_h,
-    achse_y: achse ? achse.y : null, achse_quelle: achse ? achse.quelle : null,
+    achse_y: achse ? achse.y : null, achse_quelle: achse ? achse.quelle : null, achse: achse || null,
     massstab: dr.scale, massstab_quelle: dr.scale_src || '',
   };
 }
@@ -892,7 +901,14 @@ export function modelFromConfirmedSection(spec) {
   if (spec.mode === 'extrudieren') {
     const depth = +spec.depth;
     if (!(depth > 0)) throw new ReconError('Extrusionstiefe muss größer als 0 sein.');
-    const items = Sx.orientItems(Sx.closeItems(items0));
+    let srcItems = items0;
+    let gespiegelt = false;
+    const q = spec.axis && spec.axis.quelle;
+    if (q === 'mittellinie' || q === 'markiert' || q === 'abgeleitet') {
+      const full = symmetrieren(items0, spec.axis);
+      if (full) { srcItems = Sx.itemsFromPoly(full); gespiegelt = true; }
+    }
+    const items = Sx.orientItems(Sx.closeItems(srcItems));
     const pts = items.flatMap(it => it.pts);
     const x0 = spec.origin ? +spec.origin[0] : Math.min(...pts.map(p => p[0]));
     const y0 = spec.origin ? +spec.origin[1] : Math.min(...pts.map(p => p[1]));
@@ -906,7 +922,7 @@ export function modelFromConfirmedSection(spec) {
     try { solid = onlySolid(R.basicFaceExtrusion(R.makeFace(wireFromItems(items, f)), new R.Vector(dir))); }
     catch (e) { throw new ReconError('Extrusion der bestätigten Kontur fehlgeschlagen (' + (e.message || e) + '). Kontur prüfen (geschlossen, ohne Kreuzung).'); }
     strategy = 'Platte (bestätigte Schnittkontur)';
-    feats = [{ typ: 'Extrusion (bestätigt)', text: `${spec.label || 'Schnittkontur'} extrudiert, Tiefe ${depth.toFixed(2)} mm entlang ${spec.dir === 'y' ? 'Y' : spec.dir === 'x' ? 'X' : 'Z'}, Maßstab ${Sx.fmtScale(scale)}` }];
+    feats = [{ typ: 'Extrusion (bestätigt)', text: `${spec.label || 'Schnittkontur'} extrudiert, Tiefe ${depth.toFixed(2)} mm entlang ${spec.dir === 'y' ? 'Y' : spec.dir === 'x' ? 'X' : 'Z'}${gespiegelt ? ', an der Mittellinie zur vollen Kontur ergänzt' : ''}, Maßstab ${Sx.fmtScale(scale)}` }];
   } else {
     let prof;
     try { prof = Sx.revolveProfile(items0, spec.axis, scale, spec.side || 'auto'); }
@@ -1250,7 +1266,7 @@ export function processDrawing(dr, edits, log = () => {}) {
   }
   for (const sec of sections) if (sec.cut) viewBoxes.push({ lo: r3([Math.min(sec.cut.p0[0], sec.cut.p1[0]), Math.min(sec.cut.p0[1], sec.cut.p1[1])]), hi: r3([Math.max(sec.cut.p0[0], sec.cut.p1[0]), Math.max(sec.cut.p0[1], sec.cut.p1[1])]), rolle: sec.letter, art: 'schnittverlauf' });
   for (const d of dims) { delete d.linie; delete d.spitze; if (d.anker) for (const k in d.anker) if (typeof d.anker[k] === 'number') d.anker[k] = Math.round(d.anker[k] * 1000) / 1000; }
-  const schnittKonturen = Sx.collectContours(views, sections, { tol, centers: dr.center, layout, scale: s });
+  const schnittKonturen = Sx.collectContours(views, sections, { tol, centers: dr.center, thin: dr.thin, hidden: dr.hidden, layout, scale: s });
   const schnittTiefe = Sx.suggestDepth(views, sections, s);
   return {
     solid, result: {
@@ -1258,6 +1274,7 @@ export function processDrawing(dr, edits, log = () => {}) {
       volumen_mm3: Math.round(vol(solid) * 10) / 10, bbox: r3([x1 - x0, y1 - y0, z1 - z0]), bbox_lo: r3([x0, y0, z0]), gueltig,
       texte: (dr.phrases || []).map(p => p.text), ansichten: viewBoxes, schnitte: sections.map(x => ({ buchstabe: x.letter, ansicht: rollen[x.view], schraffurlinien: x.hatch.length, verlauf: x.cut ? x.cut.dir : null, eltern: x.parent != null ? rollen[x.parent] : null })), einzelheiten: detailInfo.map(d => ({ buchstabe: d.letter, massstab: d.k, vergroesserung: +d.ratio.toFixed(3) })), page_w: dr.page_w, page_h: dr.page_h, masse: dims, pmi, flaechen: an.faces, kanten: an.edges,
       blatt: prep.alle.map(v => ({ id: v.id, rolle: v.rolle, label: v.label, art: v.art, nutzen: views.includes(v) })),
+      bahn: bahnPaket(layout, views, dr),
       flaechen_statistik: stats, kanten_statistik: estats, teil_typ: layout.typ, schnitt_konturen: schnittKonturen, schnitt_tiefe: schnittTiefe,
     }, mesh: an.mesh, edgeMesh: an.edgeMesh,
   };

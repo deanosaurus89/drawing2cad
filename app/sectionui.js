@@ -59,7 +59,7 @@ export function createSectionUI(api) {
       return;
     }
     panel().hidden = false;
-    $('#sk-achse-block').hidden = mode() !== 'drehen';
+    $('#sk-achse-block').hidden = false;
     $('#sk-extr-block').hidden = mode() !== 'extrudieren';
     $('#sk-punkt').hidden = !ui.editing;
     $('#sk-edit').textContent = ui.editing ? 'Punkte fertig' : 'Punkte schieben';
@@ -74,8 +74,8 @@ export function createSectionUI(api) {
     if (ui.picking === 1) info.textContent = 'Ersten Achsenpunkt auf der Zeichnung antippen.';
     else if (ui.picking === 2) info.textContent = 'Zweiten Achsenpunkt antippen.';
     else if (ui.axis) {
-      const q = ui.axis.quelle === 'mittellinie' ? 'Mittellinie' : ui.axis.quelle === 'symmetrie' ? 'Symmetrie der Drehachse' : ui.axis.quelle === 'ansichtsmitte' ? 'Mitte der Ansicht' : 'von Hand gesetzt';
-      info.textContent = 'Rotationsachse: ' + q + '.';
+      const namen = { mittellinie: 'erkannte Mittellinie', markiert: 'angeklickte Linie', abgeleitet: 'Mitte aus zwei Linien', symmetrie: 'Symmetrie der Drehachse', ansichtsmitte: 'Mitte der Ansicht', manuell: 'von Hand gesetzt' };
+      info.textContent = 'Mittellinie (' + (namen[ui.axis.quelle] || 'gesetzt') + ') gilt für Drehen und fürs Ergänzen einer Halbkontur beim Extrudieren.';
     }
     const yLabel = $('#sk-achse-y-label');
     if (axisHorizontal() && !ui.picking) {
@@ -104,7 +104,26 @@ export function createSectionUI(api) {
       poly.dataset.id = c.id;
       svg.appendChild(poly);
     }
-    if (mode() === 'drehen' && ui.axis) {
+    const used = current();
+    if (used && used.poly && used.poly.length >= 3) {
+      const pl = document.createElementNS(NS, 'polyline');
+      const ring = used.poly.concat([used.poly[0]]);
+      pl.setAttribute('points', ring.map(p => `${p[0]},${page.h - p[1]}`).join(' '));
+      pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', '#0a7a32');
+      pl.setAttribute('stroke-width', '4'); pl.setAttribute('vector-effect', 'non-scaling-stroke');
+      pl.dataset.bahn = '1';
+      svg.appendChild(pl);
+    } else if (state.result && state.result.bahn && state.result.bahn.poly) {
+      const poly = state.result.bahn.poly;
+      const pl = document.createElementNS(NS, 'polyline');
+      const ring = poly.concat([poly[0]]);
+      pl.setAttribute('points', ring.map(p => `${p[0]},${page.h - p[1]}`).join(' '));
+      pl.setAttribute('fill', 'rgba(10,122,50,0.16)'); pl.setAttribute('stroke', '#0a7a32');
+      pl.setAttribute('stroke-width', '4'); pl.setAttribute('vector-effect', 'non-scaling-stroke');
+      pl.dataset.bahn = '1';
+      svg.appendChild(pl);
+    }
+    if (ui.axis) {
       const ln = document.createElementNS(NS, 'line');
       ln.setAttribute('x1', ui.axis.p0[0]); ln.setAttribute('y1', page.h - ui.axis.p0[1]);
       ln.setAttribute('x2', ui.axis.p1[0]); ln.setAttribute('y2', page.h - ui.axis.p1[1]);
@@ -113,7 +132,7 @@ export function createSectionUI(api) {
       svg.appendChild(ln);
     }
     const g = $('#griffe'); g.replaceChildren();
-    if (mode() === 'drehen' && ui.axis && !ui.picking) {
+    if (ui.axis && !ui.picking) {
       for (const [i, p] of [[0, ui.axis.p0], [1, ui.axis.p1]]) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'griff achse'; b.title = 'Achsenende ziehen';
         b.dataset.kind = 'axis'; b.dataset.i = String(i);
@@ -338,8 +357,21 @@ export function createSectionUI(api) {
     const list = $('#schnitt-liste'); if (list) list.innerHTML = '';
   }
 
+  function setAxis(ax) {
+    if (!ax || !ax.p0 || !ax.p1) return;
+    ui.axis = clone(ax); ui.axisDirty = true; ui.picking = 0;
+    if (panel() && panel().hidden && state.result) panel().hidden = false;
+    render();
+  }
+  const achsen = api.achsen;
+  if (achsen && $('#sk-achse-mark')) {
+    $('#sk-achse-mark').onclick = () => { ui.picking = 0; achsen.setMode('mark'); msg('Bestehende Linie oder Kurve als Mittellinie antippen.'); };
+    $('#sk-achse-zwei').onclick = () => { ui.picking = 0; achsen.setMode('pair'); msg('Erste Linie antippen, danach die parallele Gegenkante.'); };
+    achsen.on(ax => { if (ax) setAxis(ax); });
+  }
+
   return {
-    onResult, build, restore, render, live, reset,
+    onResult, build, restore, render, live, reset, setAxis,
     selectId: id => { ui.axisDirty = false; select(id); },
     candidates: () => ui.contours.map(c => ({ id: c.id, schraffur: c.schraffur, flaeche: c.flaeche, vorschlag: !!c.vorschlag, quelle: c.quelle, buchstabe: c.buchstabe, rejected: ui.rejected.has(c.id) })),
     selected: () => ui.selected,

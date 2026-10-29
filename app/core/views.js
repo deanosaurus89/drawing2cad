@@ -1,6 +1,7 @@
 // Ansichten auf dem Blatt: gruppieren, Schriftfeld und Isometrie abtrennen, Rollen vorschlagen.
 import { bbox, dist, Graph } from './geom.js';
 import { fitPrimitives } from './fitgeom.js';
+import { erkenneMittellinie } from './mittellinie.js';
 
 export function clusterViews(prims, gap = 3.0, minSize = 4.0) {
   const boxes = prims.map(bbox);
@@ -191,23 +192,21 @@ export function aufbereiten(dr, hinweis) {
   return { alle: views, views: use, strokes, msgs, details };
 }
 
-export function suggestAxis(view, centers) {
+export function suggestAxis(view, centers, extra = {}) {
   if (!view) return null;
-  const lines = (centers || []).filter(p => p.kind === 'line' && p.pts);
-  let best = null;
-  for (const p of lines) {
-    const [a, b] = p.pts;
-    const horiz = Math.abs(a[1] - b[1]) < 0.6 && Math.abs(a[0] - b[0]) > Math.max(10, view.size[0] * 0.4);
-    if (!horiz) continue;
-    const y = (a[1] + b[1]) / 2;
-    if (y < view.lo[1] - 1 || y > view.hi[1] + 1) continue;
-    const mx = (Math.min(a[0], b[0]) + Math.max(a[0], b[0])) / 2;
-    if (mx < view.lo[0] - 5 || mx > view.hi[0] + 5) continue;
-    const L = Math.abs(a[0] - b[0]);
-    if (!best || L > best.L) best = { y, L };
+  const pools = centers && centers.center ? centers : { center: centers || [], thin: extra.thin || [], hidden: extra.hidden || [] };
+  const found = erkenneMittellinie(view, pools);
+  if (found) {
+    const horiz = Math.abs(found.p0[1] - found.p1[1]) <= Math.abs(found.p0[0] - found.p1[0]);
+    return {
+      ...found,
+      y: (found.p0[1] + found.p1[1]) / 2,
+      x: (found.p0[0] + found.p1[0]) / 2,
+      lage: horiz ? 'waagerecht' : 'senkrecht',
+    };
   }
-  if (best) return { y: best.y, quelle: 'mittellinie' };
-  return { y: (view.lo[1] + view.hi[1]) / 2, quelle: 'ansichtsmitte' };
+  const y = (view.lo[1] + view.hi[1]) / 2;
+  return { y, x: (view.lo[0] + view.hi[0]) / 2, p0: [view.lo[0], y], p1: [view.hi[0], y], quelle: 'ansichtsmitte', lage: 'waagerecht' };
 }
 
 const CONF_LABEL = { hoch: 'hoch', mittel: 'mittel', niedrig: 'niedrig' };
